@@ -12,42 +12,47 @@
 # which will generate the output file 'openconnect-installer.exe' which is a Windows
 # installer containing your program.
 
-Name "OpenConnect"
+!define PRODUCT_NAME "OpenConnect"
+!define PRODUCT_URL "https://www.infradead.org/openconnect/"
+!define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenConnect"
+
+Name "${PRODUCT_NAME}"
+RequestExecutionLevel admin
 InstallDir "$ProgramFiles\OpenConnect"
-InstallDirRegKey HKLM SOFTWARE\OpenConnect "Install_Dir"
+BrandingText " "
 
 ShowInstDetails hide
 ShowUninstDetails hide
 
 SetCompressor /FINAL lzma
 
-VIAddVersionKey ProductName "OpenConnect"
+VIAddVersionKey ProductName "${PRODUCT_NAME}"
 VIAddVersionKey FileVersion "${VERSION}"
 VIAddVersionKey FileDescription "OpenConnect installer"
 
-XPStyle on
-
+!include "MUI2.nsh"
+!include "FileFunc.nsh"
+!include "LogicLib.nsh"
 !include "x64.nsh"
 
-Function .onInit
- ${If} ${RunningX64}
-   SetRegView 64
-   StrCpy $INSTDIR "$ProgramFiles64\OpenConnect"
- ${EndIf}
-FunctionEnd
+!define MUI_ICON "${OPENCONNECT_ICON}"
+!define MUI_UNICON "${OPENCONNECT_ICON}"
 
+Var PreviousInstallDir
+Var CurrentInstallDir
 
-Page components
-Page directory
-Page instfiles
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "${OPENCONNECT_LICENSE}"
 
-ComponentText "Select which optional components you want to install."
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
 
-DirText "Please select the installation folder."
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "English"
 
 Section "OpenConnect"
-  SectionIn RO
-
   SetOutPath "$INSTDIR"
   !include instfiles.nsh
 
@@ -55,21 +60,11 @@ Section "OpenConnect"
   FileOpen $0 "$INSTDIR\Online Documentation.url" w
   IfErrors done
     FileWrite $0 "[InternetShortcut]$\n"
-    FileWrite $0 "URL=https://www.infradead.org/openconnect$\n"
+    FileWrite $0 "URL=${PRODUCT_URL}$\n"
     FileWrite $0 "IconIndex=0$\n"
     FileWrite $0 "IconFile=$INSTDIR\openconnect.exe$\n"
     FileClose $0
   done:
-SectionEnd
-
-Section "Start Menu Shortcuts"
-  CreateDirectory "$SMPROGRAMS\OpenConnect"
-  CreateShortCut "$SMPROGRAMS\OpenConnect\Uninstall OpenConnect.lnk" "$INSTDIR\Uninstall OpenConnect.exe" "" "$INSTDIR\Uninstall OpenConnect.exe" 0
-  CreateShortCut "$SMPROGRAMS\OpenConnect\openconnect.exe.lnk" "$INSTDIR\.\openconnect.exe" "" "$INSTDIR\.\openconnect.exe" 0
-SectionEnd
-
-Section "Desktop Icons"
-  CreateShortCut "$DESKTOP\openconnect.exe.lnk" "$INSTDIR\.\openconnect.exe" "" "$INSTDIR\.\openconnect.exe" 0
 SectionEnd
 
 Section "Uninstall"
@@ -80,10 +75,76 @@ Section "Uninstall"
 
   !include uninstfiles.nsh
   Delete /rebootok "$INSTDIR\Online Documentation.url"
+
+  DeleteRegKey HKLM "${UNINSTALL_KEY}"
+
   Delete /rebootok "$INSTDIR\Uninstall OpenConnect.exe"
   RMDir "$INSTDIR"
 SectionEnd
 
 Section -post
   WriteUninstaller "$INSTDIR\Uninstall OpenConnect.exe"
+
+  ; Remove known product files if the installation directory changed.
+  ${If} $PreviousInstallDir != ""
+    GetFullPathName $0 "$PreviousInstallDir\openconnect.exe"
+    GetFullPathName $1 "$INSTDIR\openconnect.exe"
+
+    ${If} $0 != $1
+      StrCpy $CurrentInstallDir "$INSTDIR"
+      StrCpy $INSTDIR "$PreviousInstallDir"
+      !include uninstfiles.nsh
+      Delete /rebootok "$INSTDIR\Online Documentation.url"
+      Delete /rebootok "$INSTDIR\Uninstall OpenConnect.exe"
+      RMDir "$INSTDIR"
+      StrCpy $INSTDIR "$CurrentInstallDir"
+
+    ${EndIf}
+  ${EndIf}
+
+  WriteRegStr HKLM "${UNINSTALL_KEY}" "DisplayName" "${PRODUCT_NAME}"
+  WriteRegStr HKLM "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKLM "${UNINSTALL_KEY}" "Publisher" "OpenConnect project"
+  WriteRegStr HKLM "${UNINSTALL_KEY}" "URLInfoAbout" "${PRODUCT_URL}"
+  WriteRegStr HKLM "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "${UNINSTALL_KEY}" "DisplayIcon" "$\"$INSTDIR\openconnect.exe$\",0"
+  WriteRegStr HKLM "${UNINSTALL_KEY}" "UninstallString" "$\"$INSTDIR\Uninstall OpenConnect.exe$\""
+  WriteRegStr HKLM "${UNINSTALL_KEY}" "QuietUninstallString" "$\"$INSTDIR\Uninstall OpenConnect.exe$\" /S"
+  WriteRegDWORD HKLM "${UNINSTALL_KEY}" "NoModify" 1
+  WriteRegDWORD HKLM "${UNINSTALL_KEY}" "NoRepair" 1
+
+  ClearErrors
+  ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+  ${IfNot} ${Errors}
+    IntFmt $0 "0x%08X" $0
+    WriteRegDWORD HKLM "${UNINSTALL_KEY}" "EstimatedSize" $0
+  ${EndIf}
 SectionEnd
+
+Function .onInit
+  StrCpy $PreviousInstallDir ""
+
+  ${If} ${RunningX64}
+    SetRegView 64
+    StrCpy $INSTDIR "$ProgramFiles64\OpenConnect"
+  ${Else}
+    SetRegView 32
+    StrCpy $INSTDIR "$ProgramFiles\OpenConnect"
+  ${EndIf}
+
+  ClearErrors
+  ReadRegStr $0 HKLM "${UNINSTALL_KEY}" "InstallLocation"
+  ${IfNot} ${Errors}
+  ${AndIf} $0 != ""
+    StrCpy $PreviousInstallDir "$0"
+    StrCpy $INSTDIR "$0"
+  ${EndIf}
+FunctionEnd
+
+Function un.onInit
+  ${If} ${RunningX64}
+    SetRegView 64
+  ${Else}
+    SetRegView 32
+  ${EndIf}
+FunctionEnd

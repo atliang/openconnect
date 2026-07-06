@@ -481,9 +481,13 @@ uninstfiles.nsh: file-list.txt file-list-vpnc-script-win.js.txt file-list-extra.
 # Theoretically makensis can define symbols with the -D command line
 # option and much of this could just be done that way, but I couldn't
 # get it to work and life's too short.
-openconnect.nsi: version.c
+openconnect.nsi: version.c $(srcdir)/openconnect.nsi.in $(srcdir)/openconnect.ico $(srcdir)/COPYING.LGPL
 	$(AM_V_GEN) VERSION=$$(cut -f2 -d\" version.c); \
+	OPENCONNECT_ICON="$$($(CYGPATH_W) "$(abs_srcdir)/openconnect.ico")"; \
+	OPENCONNECT_LICENSE="$$($(CYGPATH_W) "$(abs_srcdir)/COPYING.LGPL")"; \
 	PROD_VERSION=$$(echo "$$VERSION" | perl -ne 'm|v(\d+)\.(\d+)(?:\.git\.\|\-)?(\d+)?(?:-g.+\|.*)|; printf("%1d.%1d.%1d.0",$$1,$$2,$$3)'); \
+	INSTALLER_VERSION=$$VERSION; \
+	VERSION=$${VERSION#v}; \
 	if grep -E -q '^#define OPENCONNECT_GNUTLS' config.h; then \
 	    TLS_LIBRARY=GnuTLS; \
 	elif grep -E -q '^#define OPENCONNECT_OPENSSL' config.h; then \
@@ -491,11 +495,15 @@ openconnect.nsi: version.c
 	else \
 	    TLS_LIBRARY="Unknown_TLS_library"; \
 	fi; \
-	INSTALLER_NAME="openconnect-installer-$(INSTALLER_SUFFIX)-$${VERSION}.exe"; \
-	( echo "VIProductVersion \"$$PROD_VERSION\""; \
-	  echo "VIAddVersionKey ProductVersion \"$$VERSION\""; \
-	  echo "VIAddVersionKey Comments \"OpenConnect multi-protocol VPN client for Windows (command-line version, built with $$TLS_LIBRARY). For more information, visit https://www.infradead.org/openconnect/\""; \
-	  echo "OutFile \"$$INSTALLER_NAME\""; \
+	INSTALLER_NAME="openconnect-installer-$(INSTALLER_SUFFIX)-$${INSTALLER_VERSION}.exe"; \
+	( printf '%s\n' \
+	    "!define VERSION \"$$VERSION\"" \
+	    "!define OPENCONNECT_ICON \"$$OPENCONNECT_ICON\"" \
+	    "!define OPENCONNECT_LICENSE \"$$OPENCONNECT_LICENSE\"" \
+	    "VIProductVersion \"$$PROD_VERSION\"" \
+	    "VIAddVersionKey ProductVersion \"$$VERSION\"" \
+	    "VIAddVersionKey Comments \"OpenConnect multi-protocol VPN client for Windows (command-line version, built with $$TLS_LIBRARY). For more information, visit https://www.infradead.org/openconnect/\"" \
+	    "OutFile \"$$INSTALLER_NAME\""; \
 	  cat "$(srcdir)/openconnect.nsi.in" ) > $@
 
 AM_V_MAKENSIS = $(am__v_MAKENSIS_$(V))
