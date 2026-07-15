@@ -214,6 +214,8 @@ enum {
 	OPT_PROXY_AUTH,
 	OPT_HTTP_AUTH,
 	OPT_LOCAL_HOSTNAME,
+	OPT_CISCO_CLIENT_CERT,
+	OPT_CISCO_CLIENT_KEY,
 	OPT_PROTOCOL,
 	OPT_PASSTOS,
 	OPT_VERSION,
@@ -250,6 +252,8 @@ static const struct option long_options[] = {
 	OPTION("pfs", 0, OPT_PFS),
 	OPTION("allow-insecure-crypto", 0, OPT_ALLOW_INSECURE_CRYPTO),
 	OPTION("certificate", 1, 'c'),
+	OPTION("cisco-client-cert", 2, OPT_CISCO_CLIENT_CERT),
+	OPTION("cisco-client-key", 1, OPT_CISCO_CLIENT_KEY),
 	OPTION("sslkey", 1, 'k'),
 	OPTION("cookie", 1, 'C'),
 	OPTION("compression", 1, OPT_COMPRESSION),
@@ -1033,6 +1037,8 @@ static void usage(void)
 	printf("                                  %s\n", _("as \"realm\", \"domain\", \"gateway\"; protocol-dependent)"));
 	printf("  -F, --form-entry=FORM:OPT=VALUE %s\n", _("Provide authentication form responses"));
 	printf("  -c, --certificate=CERT          %s\n", _("Use SSL client certificate CERT"));
+	printf("      --cisco-client-cert[=CERT]  %s\n", _("Use Cisco Secure Client certificate"));
+	printf("      --cisco-client-key=KEY      %s\n", _("Use Cisco Secure Client private key"));
 	printf("  -k, --sslkey=KEY                %s\n", _("Use SSL private key file KEY"));
 	printf("  -e, --cert-expire-warning=DAYS  %s\n", _("Warn when certificate lifetime < DAYS"));
 	printf("  -g, --usergroup=GROUP           %s\n", _("Set path of initial request URL"));
@@ -2056,6 +2062,15 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 			vpninfo->certinfo[0].cert = dup_config_arg();
+			break;
+		case OPT_CISCO_CLIENT_CERT:
+			vpninfo->try_cisco_client_cert = 1;
+			if (config_arg)
+				vpninfo->cisco_client_cert = dup_config_arg();
+			break;
+		case OPT_CISCO_CLIENT_KEY:
+			vpninfo->try_cisco_client_cert = 1;
+			vpninfo->cisco_client_key = dup_config_arg();
 			break;
 		case 'e':
 			assert_nonnull_config_arg("e", config_arg);
