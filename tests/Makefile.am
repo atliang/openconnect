@@ -69,14 +69,15 @@ EXTRA_DIST = certs/ca.pem certs/ca-key.pem certs/user-cert.pem $(USER_KEYS) $(US
 	softhsm2.conf.in softhsm ns.sh configs/test-dtls-psk.config \
 	scripts/vpnc-script scripts/vpnc-script-detect-disconnect \
 	suppressions.lsan fake-fortinet-server.py fake-f5-server.py fake-juniper-server.py \
-	fake-juniper-sso-server.py fake-tncc.py fake-gp-server.py fake-cisco-server.py
+	fake-juniper-sso-server.py fake-tncc.py fake-gp-server.py fake-cisco-server.py \
+	fake-pulse-server.py
 
 dist_check_SCRIPTS = autocompletion symbols
 TESTS = autocompletion symbols
 
-dist_check_SCRIPTS += dtls-psk sigterm
+dist_check_SCRIPTS += dtls-psk sigterm pulse-ping
 if HAVE_NETNS
-TESTS += dtls-psk sigterm
+TESTS += dtls-psk sigterm pulse-ping
 endif
 
 dist_check_SCRIPTS += ppp-over-tls ppp-over-tls-sync
@@ -87,7 +88,7 @@ endif
 dist_check_SCRIPTS += auth-username-pass auth-certificate auth-nonascii cert-fingerprint \
 	id-test obsolete-server-crypto pfs auth-swtpm auth-hwtpm fortinet-auth-and-config \
 	f5-auth-and-config juniper-auth juniper-sso-auth gp-auth-and-config auth-pkcs11 \
-	auth-multicert
+	auth-multicert oath-token
 
 if HAVE_CWRAP
 TESTS += auth-username-pass auth-certificate auth-nonascii cert-fingerprint id-test \
@@ -110,7 +111,7 @@ endif
 if HAVE_PYTHON36_FLASK
 TESTS += juniper-sso-auth auth-multicert
 if HAVE_PYTHON37_DATACLASSES
-TESTS += juniper-auth gp-auth-and-config f5-auth-and-config fortinet-auth-and-config
+TESTS += juniper-auth gp-auth-and-config f5-auth-and-config fortinet-auth-and-config oath-token
 endif
 endif
 
@@ -304,7 +305,7 @@ SWTPM_PRELOAD := LD_PRELOAD=libsocket_wrapper.so SOCKET_WRAPPER_DIR=$(SWTPM_TMPD
 
 SWTPM_IOCTL_RUN = $(SWTPM_PRELOAD) $(SWTPM_IOCTL) --tcp 127.0.0.1:2322
 
-# This isn't safe for parallel builds, as it is invoked in mulltiple
+# This isn't safe for parallel builds, as it is invoked in multiple
 # places and has an obvious race condition.  However, this is only for
 # the one-time setup of the persistent swtpm state, and I can remember
 # not to use 'make -j' that one time. Fixing it to be a proper
