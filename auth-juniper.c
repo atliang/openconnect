@@ -460,6 +460,7 @@ int oncp_obtain_cookie(struct openconnect_info *vpninfo)
 
 	while (1) {
 		char *form_buf = NULL;
+		char *html;
 		int role_select = 0;
 	        char *url;
 
@@ -490,7 +491,11 @@ int oncp_obtain_cookie(struct openconnect_info *vpninfo)
 			break;
 		}
 
-		doc = htmlReadMemory(strstr(form_buf, "<html"), ret, url, NULL,
+		html = strcasestr(form_buf, "<html");
+		if (!html)
+			html = form_buf;
+
+		doc = htmlReadMemory(html, ret - (int)(html - form_buf), url, NULL,
 				     HTML_PARSE_RECOVER|HTML_PARSE_NOERROR|HTML_PARSE_NOWARNING|HTML_PARSE_NONET);
 		free(url);
 		free(form_buf);
