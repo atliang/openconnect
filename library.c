@@ -873,6 +873,8 @@ void openconnect_vpninfo_free(struct openconnect_info *vpninfo)
 		xmlFreeNode(vpninfo->opaque_srvdata);
 	free(vpninfo->profile_url);
 	free(vpninfo->profile_sha1);
+	free(vpninfo->cisco_client_cert);
+	free(vpninfo->cisco_client_key);
 
 	free_certinfo(&vpninfo->certinfo[0]);
 	free_certinfo(&vpninfo->certinfo[1]);

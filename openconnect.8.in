@@ -154,6 +154,28 @@ The
 option sets the secondary certificate for multi-certificate authentication (according
 to Cisco's terminology, the SSL client certificate is called the "machine" certificate,
 and the second certificate is called the "user" certificate).
+.TAG opt-cisco-client-cert
+.TP
+.B \-\-cisco-client-cert[=CERT]
+Use a Cisco Secure Client Linux PEM certificate as the primary SSL client
+certificate. If
+.I CERT
+is omitted, OpenConnect searches the Cisco Secure Client Linux PEM certificate
+store for
+.I CiscoUserNetworkAccess.pem.
+.TP
+.B \-\-cisco-client-key=KEY
+Use a Cisco Secure Client Linux PEM private key as the primary SSL client
+private key. If this option is omitted, OpenConnect searches the Cisco Secure
+Client Linux PEM certificate store for
+.I CiscoUserNetworkAccess.key
+when
+.B \-\-cisco-client-cert
+is enabled. An explicit
+.B \-\-certificate
+or
+.B \-\-sslkey
+option takes precedence.
 .TAG opt-cert-expire-warning
 .TP
 .B \-e,\-\-cert\-expire\-warning=DAYS

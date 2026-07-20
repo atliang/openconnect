@@ -483,6 +483,9 @@ struct openconnect_info {
 	struct http_auth_state http_auth[MAX_AUTH_TYPES];
 	struct http_auth_state proxy_auth[MAX_AUTH_TYPES];
 	int no_external_auth;
+	int try_cisco_client_cert;
+	char *cisco_client_cert;
+	char *cisco_client_key;
 	const char *external_browser;
 
 	char *localname;

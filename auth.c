@@ -60,6 +60,105 @@ static int prepare_multicert_response(struct openconnect_info *vpninfo,
 			      struct cert_request cert_rq, const char *challenge,
 			      struct oc_text_buf *body);
 
+static int file_readable(const char *path)
+{
+	struct stat st;
+
+	return !stat(path, &st) && S_ISREG(st.st_mode) && !access(path, R_OK);
+}
+
+static char *find_cisco_pem_file(const char *base, const char *const *dirs,
+				 const char *const *exts)
+{
+	char *path;
+	int i, j;
+
+	for (i = 0; dirs[i]; i++) {
+		for (j = 0; exts[j]; j++) {
+			if (asprintf(&path, "%s/%s%s", dirs[i], base, exts[j]) == -1)
+				return NULL;
+			if (file_readable(path))
+				return path;
+			free(path);
+		}
+	}
+
+	return NULL;
+}
+
+static int configure_cisco_client_cert(struct openconnect_info *vpninfo)
+{
+	const char *home = getenv("HOME");
+	const char *key_dirs[2], *cert_dirs[5];
+	const char *key_exts[] = { ".key", ".pem", NULL };
+	const char *cert_exts[] = { ".pem", ".crt", ".cer", NULL };
+	const char *base = "CiscoUserNetworkAccess";
+	char *client_dir, *private_dir, *public_dir, *cert = NULL, *key = NULL;
+
+	if (!vpninfo->try_cisco_client_cert || vpninfo->certinfo[0].cert ||
+	    vpninfo->certinfo[0].key)
+		return 0;
+
+	if (vpninfo->cisco_client_key)
+		key = strdup(vpninfo->cisco_client_key);
+	if (vpninfo->cisco_client_cert)
+		cert = strdup(vpninfo->cisco_client_cert);
+	if ((vpninfo->cisco_client_key && !key) || (vpninfo->cisco_client_cert && !cert))
+		return -ENOMEM;
+
+	client_dir = private_dir = public_dir = NULL;
+	if ((!key || !cert) && home) {
+		if (asprintf(&client_dir, "%s/.cisco/certificates/client", home) == -1)
+			return -ENOMEM;
+		if (asprintf(&private_dir, "%s/private", client_dir) == -1) {
+			free(client_dir);
+			return -ENOMEM;
+		}
+		if (asprintf(&public_dir, "%s/public", client_dir) == -1) {
+			free(private_dir);
+			free(client_dir);
+			return -ENOMEM;
+		}
+
+		key_dirs[0] = private_dir;
+		key_dirs[1] = NULL;
+		cert_dirs[0] = client_dir;
+		cert_dirs[1] = public_dir;
+		cert_dirs[2] = "/opt/linux@cisco/certs";
+		cert_dirs[3] = private_dir;
+		cert_dirs[4] = NULL;
+
+		if (!key)
+			key = find_cisco_pem_file(base, key_dirs, key_exts);
+		if (!cert)
+			cert = find_cisco_pem_file(base, cert_dirs, cert_exts);
+	}
+
+	if (key && cert) {
+		vpn_progress(vpninfo, PRG_INFO,
+			     _("Using Cisco Secure Client certificate %s\n"), cert);
+		vpninfo->certinfo[0].cert = cert;
+		vpninfo->certinfo[0].key = key;
+		cert = key = NULL;
+	} else if (key) {
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("Found Cisco Secure Client private key %s, but no matching certificate\n"),
+			     key);
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("Export or install the matching CiscoUserNetworkAccess certificate, or pass it with --certificate.\n"));
+	} else {
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("No Cisco Secure Client private key was configured or found\n"));
+	}
+
+	free(cert);
+	free(key);
+	free(public_dir);
+	free(private_dir);
+	free(client_dir);
+	return vpninfo->certinfo[0].cert ? 1 : 0;
+}
+
 int openconnect_set_option_value(struct oc_form_opt *opt, const char *value)
 {
 	if (opt->type == OC_FORM_OPT_SELECT) {
@@ -1401,6 +1500,11 @@ int cstp_obtain_cookie(struct openconnect_info *vpninfo)
 	if (!vpninfo->xmlpost)
 		goto no_xmlpost;
 
+	result = configure_cisco_client_cert(vpninfo);
+	if (result < 0)
+		goto out;
+	cert_sent = !vpninfo->certinfo[0].cert;
+
 	/*
 	 * Step 2: Probe for XML POST compatibility
 	 *
@@ -1495,6 +1599,11 @@ newgroup:
 
 			free_auth_form(form);
 			form = NULL;
+
+			if (!cert_sent && !vpninfo->certinfo[0].cert)
+				result = configure_cisco_client_cert(vpninfo);
+			if (result < 0)
+				goto out;
 
 			if (!cert_sent && vpninfo->certinfo[0].cert) {
 				/* Try again on a fresh connection. */
