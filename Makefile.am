@@ -396,7 +396,15 @@ po/$(PACKAGE).pot: $(POTFILES) version.sh
 ACLOCAL_AMFLAGS = -I m4
 
 if BUILD_NSIS
+# EnVar v0.7 (2026-01-30).
+ENVAR_ARCHIVE = EnVar_plugin.zip
+ENVAR_SHA256 = e9aa92de351345ed82795251d838f1ae9041ba35af9d381a5780c7843b01f56a
+ENVAR_PLUGIN_DIR = nsis-plugins
+ENVAR_PLUGIN = $(abs_builddir)/$(ENVAR_PLUGIN_DIR)/EnVar.dll
+ENVAR_URL = https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
+
 DISTCLEANFILES += .*.dll.d .*.exe.d file-list*.txt instfiles.nsh uninstfiles.nsh vpnc-script-win.js openconnect.nsi openconnect-installer-*.exe
+DISTCLEANFILES += $(ENVAR_ARCHIVE) $(ENVAR_ARCHIVE).tmp $(ENVAR_PLUGIN_DIR)/EnVar.dll
 
 # Including openconnect-gui.exe and Qt bits (as a hack)
 #EXTRA_EXECUTABLES := openconnect-gui.exe qwindows.dll qwindowsvistastyle.dll
@@ -404,6 +412,16 @@ DISTCLEANFILES += .*.dll.d .*.exe.d file-list*.txt instfiles.nsh uninstfiles.nsh
 #EXTRA_DLLDIRS := $(OPENCONNECT_GUI_DIR)/bin $(libdir)/qt5/plugins/platforms $(libdir)/qt5/plugins/styles
 
 DLL_EXECUTABLES := openconnect$(EXEEXT) $(EXTRA_EXECUTABLES)
+
+$(ENVAR_ARCHIVE):
+	$(AM_V_GEN)curl -fL "$(ENVAR_URL)" -o "$@.tmp" && \
+	  printf '%s  %s\n' '$(ENVAR_SHA256)' '$@.tmp' | sha256sum -c - && \
+	  mv "$@.tmp" "$@"
+
+$(ENVAR_PLUGIN): $(ENVAR_ARCHIVE)
+	$(AM_V_GEN)printf '%s  %s\n' '$(ENVAR_SHA256)' '$<' | sha256sum -c - && \
+	  $(MKDIR_P) "$(abs_builddir)/$(ENVAR_PLUGIN_DIR)" && \
+	  unzip -DD -o -j -d "$(abs_builddir)/$(ENVAR_PLUGIN_DIR)" "$<" 'Plugins/x86-unicode/EnVar.dll'
 endif
 
 if OPENCONNECT_WINTUN
@@ -485,6 +503,7 @@ openconnect.nsi: version.c $(srcdir)/openconnect.nsi.in $(srcdir)/openconnect.ic
 	$(AM_V_GEN) VERSION=$$(cut -f2 -d\" version.c); \
 	OPENCONNECT_ICON="$$($(CYGPATH_W) "$(abs_srcdir)/openconnect.ico")"; \
 	OPENCONNECT_LICENSE="$$($(CYGPATH_W) "$(abs_srcdir)/COPYING.LGPL")"; \
+	ENVAR_PLUGIN_DIR="$$($(CYGPATH_W) "$(abs_builddir)/$(ENVAR_PLUGIN_DIR)")"; \
 	PROD_VERSION=$$(echo "$$VERSION" | perl -ne 'm|v(\d+)\.(\d+)(?:\.git\.\|\-)?(\d+)?(?:-g.+\|.*)|; printf("%1d.%1d.%1d.0",$$1,$$2,$$3)'); \
 	INSTALLER_VERSION=$$VERSION; \
 	VERSION=$${VERSION#v}; \
@@ -500,6 +519,7 @@ openconnect.nsi: version.c $(srcdir)/openconnect.nsi.in $(srcdir)/openconnect.ic
 	    "!define VERSION \"$$VERSION\"" \
 	    "!define OPENCONNECT_ICON \"$$OPENCONNECT_ICON\"" \
 	    "!define OPENCONNECT_LICENSE \"$$OPENCONNECT_LICENSE\"" \
+	    "!define ENVAR_PLUGIN_DIR \"$$ENVAR_PLUGIN_DIR\"" \
 	    "VIProductVersion \"$$PROD_VERSION\"" \
 	    "VIAddVersionKey ProductVersion \"$$VERSION\"" \
 	    "VIAddVersionKey Comments \"OpenConnect multi-protocol VPN client for Windows (command-line version, built with $$TLS_LIBRARY). For more information, visit https://www.infradead.org/openconnect/\"" \
@@ -511,7 +531,7 @@ am__v_MAKENSIS_ = $(am__v_MAKENSIS_$(AM_DEFAULT_VERBOSITY))
 am__v_MAKENSIS_0 = @echo "  MAKENSIS   " $@;
 am__v_MAKENSIS_1 =
 
-openconnect-installer-$(INSTALLER_SUFFIX).exe: openconnect.nsi instfiles.nsh uninstfiles.nsh $(srcdir)/openconnect.nsi.in html-recursive
+openconnect-installer-$(INSTALLER_SUFFIX).exe: openconnect.nsi instfiles.nsh uninstfiles.nsh $(ENVAR_PLUGIN) $(srcdir)/openconnect.nsi.in html-recursive
 	$(AM_V_MAKENSIS) $(MAKENSIS) $<
 	ln -f "$$(grep -E '^OutFile' openconnect.nsi | cut -f2 -d\")" $@
 
