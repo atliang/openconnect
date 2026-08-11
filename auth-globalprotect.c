@@ -752,6 +752,15 @@ static int gpst_login(struct openconnect_info *vpninfo, int portal, struct login
 			append_opt(request_body, "preferred-ipv6", vpninfo->ip_info.addr);
 		if (ctx->form->action)
 			append_opt(request_body, "inputStr", ctx->form->action);
+		/* When an alternate secret field (e.g. a SAML/prelogin cookie) is used
+		 * instead of a real password, the form option's name is that alt-secret
+		 * field name (see new_auth_form()), so the ordinary "passwd" field is
+		 * never emitted by append_form_opts() below. Some gateways reject
+		 * login.esp/getconfig.esp requests missing "passwd" entirely with
+		 * HTTP 512 auth-failed-password-empty, so send it empty alongside the
+		 * alt-secret field. */
+		if (ctx->alt_secret)
+			append_opt(request_body, "passwd", "");
 		append_form_opts(vpninfo, ctx->form, request_body);
 		if ((result = buf_error(request_body)))
 			goto out;
