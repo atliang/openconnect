@@ -22,6 +22,13 @@
 
 #include <errno.h>
 
+/* Fortinet sends this over the tunnel and expects it echoed back. It is not a
+ * PPP frame: it uses the same big-endian total-length framing as the
+ * clthello/svrhello handshake packets, but carries "GFtype\0heartbeat\0"
+ * where a PPP packet would have its 0x5050 magic. */
+static const char fortinet_heartbeat[] = "GFtype\0heartbeat";
+#define FORTINET_HEARTBEAT_LEN (2 + (int)sizeof(fortinet_heartbeat))
+
 static const uint16_t fcstab[256] = {
 	0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf,
 	0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5, 0xe97e, 0xf8f7,
@@ -1189,6 +1196,25 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 			payload_len = load_be16(eh + 4);
 			magic = load_be16(eh + 2);
 			next = eh + 6 + payload_len;
+
+			/* Heartbeat rather than a PPP frame. The server closes the
+			 * connection after heartbeat-fail-count unanswered ones, so
+			 * echo it back. */
+			if (len >= FORTINET_HEARTBEAT_LEN &&
+			    load_be16(eh) == FORTINET_HEARTBEAT_LEN &&
+			    !memcmp(eh + 2, fortinet_heartbeat, sizeof(fortinet_heartbeat))) {
+				vpn_progress(vpninfo, ppp->seen_heartbeat ? PRG_TRACE : PRG_INFO,
+					     _("Received Fortinet heartbeat, echoing it back.\n"));
+				ppp->seen_heartbeat = 1;
+				ssl_nonblock_write(vpninfo, dtls, eh, FORTINET_HEARTBEAT_LEN);
+				/* A real packet may be concatenated behind it. */
+				if (len > FORTINET_HEARTBEAT_LEN) {
+					eh += FORTINET_HEARTBEAT_LEN;
+					len -= FORTINET_HEARTBEAT_LEN;
+					goto next_pkt;
+				}
+				continue;
+			}
 
 			if (magic != 0x5050 || (load_be16(eh) != payload_len + 6))
 				goto bad_encap_header;
