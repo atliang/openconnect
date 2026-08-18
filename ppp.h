@@ -107,6 +107,7 @@ struct oc_ppp {
 	int want_ipv6;
 	int check_http_response;
 	int terminate_on_pause;
+	int seen_heartbeat;
 
 	int ppp_state;
 	struct oc_ncp lcp;
