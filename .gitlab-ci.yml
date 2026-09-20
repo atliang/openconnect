@@ -58,12 +58,12 @@ Changelog:
     fi
     echo "Changelog check: BASE=$BASE"
     # Check if changelog was modified
-    if ! git diff "$BASE"..HEAD --name-only | grep -q 'www/changelog.xml'; then
+    if git diff --quiet "$BASE"..HEAD -- www/changelog.xml; then
       echo "WARNING: No changelog entry. Please consider adding one to the OpenConnect HEAD section of www/changelog.xml."
       exit 1
     fi
     # Find the line number of the first released version (not HEAD)
-    released=$(grep -n '<b><a href=' www/changelog.xml | head -1 | cut -d: -f1)
+    released=$(set +o pipefail; grep -n '<b><a href=' www/changelog.xml | head -1 | cut -d: -f1)
     if [ -z "$released" ]; then
       echo "Could not find released version marker in changelog.xml"
       exit 0
