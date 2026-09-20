@@ -103,9 +103,6 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 			vpn_progress(vpninfo, PRG_DEBUG, _("SAML authentication required; using portal-userauthcookie to continue SAML.\n"));
 		else if (!vpninfo->open_webview && ctx->portal_prelogonuserauthcookie)
 			vpn_progress(vpninfo, PRG_DEBUG, _("SAML authentication required; using portal-prelogonuserauthcookie to continue SAML.\n"));
-		else if (!vpninfo->open_webview && ctx->alt_secret)
-			vpn_progress(vpninfo, PRG_DEBUG, _("Destination form field %s was specified; assuming SAML %s authentication is complete.\n"),
-			             ctx->alt_secret, saml_method);
 		else {
 			if (!strcmp(saml_method, "REDIRECT")) {
 				int len;
@@ -120,11 +117,6 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 				if (!saml_path)
 					goto nomem;
 				saml_path[len] = '\0';
-				free(vpninfo->sso_login);
-				vpninfo->sso_login = strdup(saml_path);
-				prompt = strdup("SAML REDIRECT authentication in progress");
-				if (!vpninfo->sso_login || !prompt)
-					goto nomem;
 			} else if (!strcmp(saml_method, "POST")) {
 				const char *prefix = "data:text/html;base64,";
 				saml_path = s;
@@ -133,14 +125,18 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 					goto nomem;
 				memmove(saml_path + strlen(prefix), saml_path, strlen(saml_path) + 1);
 				memcpy(saml_path, prefix, strlen(prefix));
-				free(vpninfo->sso_login);
-				vpninfo->sso_login = strdup(saml_path);
-				prompt = strdup("SAML REDIRECT authentication in progress");
-				if (!vpninfo->sso_login || !prompt)
-					goto nomem;
 			} else {
 				vpn_progress(vpninfo, PRG_ERR, "Unknown SAML method %s\n", saml_method);
 				goto out;
+			}
+
+			if (vpninfo->open_webview) {
+				free(vpninfo->sso_login);
+				vpninfo->sso_login = strdup(saml_path);
+				if (!vpninfo->sso_login)
+					goto nomem;
+				if (asprintf(&prompt, "SAML %s authentication in progress", saml_method) < 0)
+					goto nomem;
 			}
 
 			vpn_progress(vpninfo, PRG_INFO,
@@ -148,10 +144,34 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 					saml_method, saml_path);
 
 			/* Legacy flow (when not called by n-m-oc) */
-			if (!vpninfo->open_webview) {
-				vpn_progress(vpninfo,
-					PRG_ERR, _("When SAML authentication is complete, specify destination form field by appending field_name to login URL.\n"));
-				goto out;
+			if (!vpninfo->open_webview && !ctx->alt_secret) {
+				/* ctx->alt_secret has to contain SAML form field name
+				 * which is returned by SAML authentication response.
+				 * In most cases it is prelogin-cookie or portal-userauthcookie.
+				 * When it was not specified in login URL then ask it from user.
+				 */
+				vpn_progress(vpninfo, PRG_DEBUG, _("SAML form field name was not specified in login URL.\n"));
+				form = calloc(1, sizeof(*form));
+				if (!form)
+					goto nomem;
+				form->message = strdup(_("Please enter SAML form field name:"));
+				form->auth_id = strdup("_saml_form_field_name");
+				opt = form->opts = calloc(1, sizeof(*opt));
+				if (!opt)
+					goto nomem;
+				opt->type = OC_FORM_OPT_TEXT;
+				opt->name = strdup("saml_form_field_name");
+				opt->label = strdup(_("SAML form field name: "));
+
+				result = process_auth_form(vpninfo, form);
+
+				if (result != OC_FORM_RESULT_CANCELLED && result >= 0)
+					ctx->alt_secret = strdup(opt->_value);
+
+				free_auth_form(form);
+
+				if (result == OC_FORM_RESULT_CANCELLED || result < 0)
+					goto out;
 			}
 		}
 	}
@@ -178,7 +198,7 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 	if (asprintf(&opt->label, "%s: ", username_label ? : _("Username")) <= 0)
 		goto nomem;
 	if (!ctx->username)
-		opt->type = saml_path ? OC_FORM_OPT_SSO_USER : OC_FORM_OPT_TEXT;
+		opt->type = (vpninfo->open_webview && saml_path) ? OC_FORM_OPT_SSO_USER : OC_FORM_OPT_TEXT;
 	else {
 		opt->type = OC_FORM_OPT_HIDDEN;
 		opt->_value = ctx->username;
@@ -203,7 +223,7 @@ static int parse_prelogin_xml(struct openconnect_info *vpninfo, xmlNode *xml_nod
 	 * password in the first form means we should treat the first
 	 * form's password as a token field.
 	 */
-	if (saml_path)
+	if (vpninfo->open_webview && saml_path)
 		opt2->type = OC_FORM_OPT_SSO_TOKEN;
 	else if (!can_gen_tokencode(vpninfo, form, opt2) && !ctx->alt_secret
 	         && password_label && strcmp(password_label, "Password"))
