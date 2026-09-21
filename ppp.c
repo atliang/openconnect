@@ -1055,6 +1055,16 @@ int check_http_status(const char *buf, int len)
 	return -EINVAL;
 }
 
+/* The Fortinet server sends periodic "GFtype\0heartbeat\0" control packets
+ * over the TLS channel as a keepalive, framed with a 2-byte big-endian length
+ * prefix rather than the usual 6-byte PPP header. The client is expected to
+ * echo them back verbatim.
+ * NB: C string literals implicitly add a final \0 which is not sent on the
+ * wire, so sizeof() - 1 is the payload and the total packet length is
+ * sizeof() + 1 including the 2-byte prefix. */
+static const char fortinet_heartbeat[] = "GFtype\0heartbeat\0";
+#define FORTINET_HEARTBEAT_LEN (sizeof(fortinet_heartbeat) + 1)
+
 static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 			struct keepalive_info *kai, int *timeout, int readable)
 {
@@ -1186,6 +1196,56 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 			break;
 
 		case PPP_ENCAP_FORTINET:
+			/* The Fortinet server sends periodic "GFtype\0heartbeat\0"
+			 * control packets over the TLS channel, framed with a
+			 * 2-byte big-endian length prefix instead of the usual
+			 * 6-byte PPP header. The server expects the client to
+			 * echo them back verbatim; without a response it may
+			 * consider the connection dead and terminate the session. */
+			if (load_be16(eh) == FORTINET_HEARTBEAT_LEN &&
+			    !memcmp(eh + 2, fortinet_heartbeat,
+				    MIN(len, FORTINET_HEARTBEAT_LEN) - 2)) {
+				struct pkt *resp;
+
+				if (len < FORTINET_HEARTBEAT_LEN) {
+					/* Heartbeat split across reads; wait for the
+					 * remainder before parsing further. */
+					vpninfo->partial_rec_size = len;
+					continue;
+				}
+
+				vpn_progress(vpninfo, PRG_DEBUG,
+					     _("Received Fortinet heartbeat; echoing back\n"));
+
+				/* Echo the heartbeat back verbatim. */
+				resp = alloc_pkt(vpninfo, FORTINET_HEARTBEAT_LEN);
+				if (!resp) {
+					vpn_progress(vpninfo, PRG_ERR,
+						     _("Allocation failed\n"));
+				} else {
+					memcpy(resp->data, eh, FORTINET_HEARTBEAT_LEN);
+					resp->len = FORTINET_HEARTBEAT_LEN;
+					resp->ppp.hlen = 0;
+					/* Can't queue a second outgoing packet while
+					 * one is still partially written. */
+					if (vpninfo->current_ssl_pkt)
+						free_pkt(vpninfo, resp);
+					else
+						vpninfo->current_ssl_pkt = resp;
+				}
+
+				/* Any bytes after the heartbeat belong to the
+				 * next packet. */
+				next = eh + FORTINET_HEARTBEAT_LEN;
+				if (len > FORTINET_HEARTBEAT_LEN) {
+					next_len = len - FORTINET_HEARTBEAT_LEN;
+					memmove(eh, next, next_len);
+					len = next_len;
+					goto next_pkt;
+				}
+				continue;
+			}
+
 			payload_len = load_be16(eh + 4);
 			magic = load_be16(eh + 2);
 			next = eh + 6 + payload_len;
