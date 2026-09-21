@@ -531,13 +531,39 @@ static int parse_fortinet_xml_config(struct openconnect_info *vpninfo, char *buf
 					}
 				} else if (xmlnode_is_named(x, "split-dns")) {
 					int ii;
-					if (!xmlnode_get_prop(x, "domains", &s) && s && *s)
-						vpn_progress(vpninfo, PRG_ERR, _("WARNING: Got split-DNS domains %s (not yet implemented)\n"), s);
+
+					if (!xmlnode_get_prop(x, "domains", &s) && s && *s) {
+						char *tok, *save = NULL, *domains = s;
+
+						for (tok = strtok_r(domains, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+							struct oc_split_include *inc = malloc(sizeof(*inc));
+							char *route = strdup(tok);
+
+							if (!inc || !route) {
+								free(inc);
+								free(route);
+								free_optlist(new_opts);
+								free_split_routes(&new_ip_info);
+								ret = -ENOMEM;
+								goto out;
+							}
+
+							vpn_progress(vpninfo, PRG_INFO,
+								     _("Got split-DNS domain %s\n"), tok);
+
+							/* add_option_steal() takes ownership of route. */
+							inc->route = add_option_steal(&new_opts, "split-dns", &route);
+							inc->next = new_ip_info.split_dns;
+							new_ip_info.split_dns = inc;
+							free(route);
+						}
+					}
 					for (ii=1; ii<10; ii++) {
 						char propname[] = "dnsserver0";
 						propname[9] = '0' + ii;
 						if (!xmlnode_get_prop(x, propname, &s) && s && *s)
-							vpn_progress(vpninfo, PRG_ERR, _("WARNING: Got split-DNS server %s (not yet implemented)\n"), s);
+							vpn_progress(vpninfo, PRG_INFO,
+								     _("Got split-DNS server %s (per-zone DNS servers are not supported; using global DNS servers)\n"), s);
 						else
 							break;
 					}
