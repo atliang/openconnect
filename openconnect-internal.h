@@ -809,6 +809,12 @@ struct openconnect_info {
 	char *sso_cookie_value;
 	char *sso_browser_mode;
 
+	/* NULL-terminated list of the cookie names which comprise the
+	 * protocol's authenticated session, used by oc_sso_detect_done()
+	 * and oc_webauth_run(). The first entry is the primary session
+	 * cookie whose presence terminates the web auth. */
+	const char *const *sso_cookie_names;
+
 	int verbose;
 	void *cbdata;
 	openconnect_validate_peer_cert_vfn validate_peer_cert;
@@ -1577,6 +1583,9 @@ int cstp_obtain_cookie(struct openconnect_info *vpninfo);
 int set_csd_user(struct openconnect_info *vpninfo);
 
 /* auth-common.c */
+int oc_sso_detect_done(struct openconnect_info *vpninfo,
+		       const struct oc_webview_result *result);
+int oc_webauth_run(struct openconnect_info *vpninfo, const char *uri);
 int xmlnode_is_named(xmlNode *xml_node, const char *name);
 int xmlnode_get_val(xmlNode *xml_node, const char *name, char **var);
 int xmlnode_get_prop(xmlNode *xml_node, const char *name, char **var);

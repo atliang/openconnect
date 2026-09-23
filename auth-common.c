@@ -300,3 +300,83 @@ int can_gen_tokencode(struct openconnect_info *vpninfo,
 		return -EINVAL;
 	}
 }
+
+/****************************************************************************/
+
+/* Harvest the cookies handed back by a webview session. Any cookie whose
+ * name appears in vpninfo->sso_cookie_names is copied into the HTTP cookie
+ * jar. Once the primary session cookie (the first list entry) has been
+ * seen, return 0 so that the webview is closed; otherwise ask the webview
+ * to keep going. */
+int oc_sso_detect_done(struct openconnect_info *vpninfo,
+		       const struct oc_webview_result *result)
+{
+	int i, j;
+
+	if (!vpninfo->sso_cookie_names)
+		return -EINVAL;
+
+	for (i = 0; result->cookies != NULL && result->cookies[i] != NULL; i += 2) {
+		const char *cname = result->cookies[i], *cval = result->cookies[i+1];
+
+		if (!cval || !cval[0])
+			continue;
+
+		for (j = 0; vpninfo->sso_cookie_names[j]; j++) {
+			if (strcmp(cname, vpninfo->sso_cookie_names[j]))
+				continue;
+			http_add_cookie(vpninfo, cname, cval, 1);
+			break;
+		}
+		if (j == 0)
+			return 0; /* Primary session cookie: webview done */
+	}
+
+	/* Keep the webview going; the cookies may appear at any time */
+	return -EAGAIN;
+}
+
+/* Complete an SSO authentication by opening the given URI in the host's
+ * webview (as registered with openconnect_set_webview_callback()) and
+ * waiting for the user to complete the login. After the webview is done,
+ * the original gateway URL is restored - the redirect chain may have
+ * switched to the IdP's host in the meantime, and that host must not be
+ * mistaken for the tunnel gateway. */
+int oc_webauth_run(struct openconnect_info *vpninfo, const char *uri)
+{
+	char *saved_url = internal_get_url(vpninfo);
+	char *proto = NULL, *host = NULL, *path = NULL;
+	int port = 0, ret;
+
+	if (!vpninfo->open_webview)
+		return -EINVAL;
+
+	vpn_progress(vpninfo, PRG_INFO,
+		     _("Launching web browser for SSO authentication at %s\n"), uri);
+
+	ret = vpninfo->open_webview(vpninfo, uri, vpninfo->cbdata);
+	if (ret >= 0 && saved_url &&
+	    !internal_parse_url(saved_url, &proto, &host, &port, &path, -1)) {
+		if (host && strcmp(host, vpninfo->hostname)) {
+			free(vpninfo->hostname);
+			vpninfo->hostname = strdup(host);
+			vpninfo->port = port;
+			free(vpninfo->urlpath);
+			vpninfo->urlpath = path ? path : NULL;
+			path = NULL;
+			vpn_progress(vpninfo, PRG_INFO,
+				     _("Restoring original gateway URL %s after web authentication\n"),
+				     saved_url);
+		} else if (path) {
+			free(vpninfo->urlpath);
+			vpninfo->urlpath = path;
+			path = NULL;
+		}
+	}
+	free(proto);
+	free(host);
+	free(path);
+	free(saved_url);
+
+	return ret;
+}
