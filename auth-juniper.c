@@ -167,6 +167,31 @@ static int check_cookie_success(struct openconnect_info *vpninfo)
 	buf_free(buf);
 	return 0;
 }
+
+/* The Pulse session cookies which constitute an authenticated session.
+ * The DSID is the primary cookie; the rest are consumed to finalise the
+ * vpninfo->cookie string in check_cookie_success(). */
+static const char *const oncp_sso_cookie_names[] = {
+	"DSID", "DSFirstAccess", "DSLastAccess", "DSSignInUrl", "DSPREAUTH", NULL
+};
+
+/* Called by the GUI (e.g. the NetworkManager auth dialog) which opened a
+ * webview for us, each time a page load completes. See oc_sso_detect_done()
+ * for the harvesting of the session cookies listed above. */
+int oncp_sso_detect_done(struct openconnect_info *vpninfo,
+			 const struct oc_webview_result *result)
+{
+	return oc_sso_detect_done(vpninfo, result);
+}
+
+/* Open the given URI in an embedded webview (GUIs) and block until the
+ * SSO authentication completes or fails, restoring the original gateway
+ * URL afterwards. See oc_webauth_run(). */
+static int oncp_do_webauth(struct openconnect_info *vpninfo, const char *uri)
+{
+	return oc_webauth_run(vpninfo, uri);
+}
+
 #ifdef _WIN32
 static int tncc_preauth(struct openconnect_info *vpninfo)
 {
@@ -449,6 +474,8 @@ int oncp_obtain_cookie(struct openconnect_info *vpninfo)
 	xmlDocPtr doc = NULL;
 	xmlNodePtr node;
 	struct oc_auth_form *form = NULL;
+
+	vpninfo->sso_cookie_names = oncp_sso_cookie_names;
 	char *form_name = NULL, *form_id = NULL;
 	int try_tncc = !!vpninfo->csd_wrapper;
 
@@ -512,6 +539,23 @@ int oncp_obtain_cookie(struct openconnect_info *vpninfo)
 					return ret;
 				goto tncc_done;
 			}
+
+			/* No gateway-hosted form. The auth flow has left the
+			 * gateway (e.g. an external SAML IdP page such as
+			 * Authentik) which we can't parse headlessly. If a
+			 * webview is available, hand the flow over to the
+			 * browser: the user completes authentication there and
+			 * oncp_sso_detect_done() picks up the session cookies. */
+			if (vpninfo->open_webview) {
+				char *auth_uri = internal_get_url(vpninfo);
+				if (auth_uri) {
+					int webauth = oncp_do_webauth(vpninfo, auth_uri);
+					free(auth_uri);
+					if (webauth >= 0)
+						goto tncc_done;
+				}
+			}
+
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("Failed to find or parse web form in login page\n"));
 			ret = -EINVAL;
@@ -548,6 +592,18 @@ int oncp_obtain_cookie(struct openconnect_info *vpninfo)
 		} else if ((form_name && !strcmp(form_name, "hiddenform")) ||
 			   (form_id && !strcmp(form_id, "formSAMLSSO"))) {
 			form = parse_form_node(vpninfo, node, "submit", oncp_can_gen_tokencode);
+			if (form && form->action && vpninfo->open_webview) {
+				char *auth_uri = strdup(form->action);
+				if (auth_uri) {
+					int webauth = oncp_do_webauth(vpninfo, auth_uri);
+					free(auth_uri);
+					if (webauth >= 0) {
+						free_auth_form(form);
+						form = NULL;
+						goto tncc_done;
+					}
+				}
+			}
 		} else {
 			char *form_action = (char *)xmlGetProp(node, (unsigned char *)"action");
 			if (form_action && strstr(form_action, "remediate.cgi")) {
