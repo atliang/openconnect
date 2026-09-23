@@ -1336,6 +1336,7 @@ struct oc_auth_form *parse_form_node(struct openconnect_info *vpninfo,
 int oncp_obtain_cookie(struct openconnect_info *vpninfo);
 int oncp_send_tncc_command(struct openconnect_info *vpninfo, int first);
 void oncp_common_headers(struct openconnect_info *vpninfo, struct oc_text_buf *buf);
+int oncp_sso_detect_done(struct openconnect_info *vpninfo, const struct oc_webview_result *result);
 
 /* oncp.c */
 int oncp_connect(struct openconnect_info *vpninfo);
