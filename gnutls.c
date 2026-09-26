@@ -2818,9 +2818,9 @@ int hotp_hmac(struct openconnect_info *vpninfo, const void *challenge)
 			       vpninfo->oath_secret_len,
 			       challenge, 8, hash);
 	if (ret) {
-		vpninfo->progress(vpninfo, PRG_ERR,
-				  _("Failed to calculate OATH HMAC: %s\n"),
-				  gnutls_strerror(ret));
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("Failed to calculate OATH HMAC: %s\n"),
+			     gnutls_strerror(ret));
 		return -EINVAL;
 	}
 
