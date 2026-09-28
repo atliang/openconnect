@@ -134,6 +134,7 @@ OPENCONNECT_5_9 {
 
 OPENCONNECT_5_10 {
  global:
+	openconnect_set_progress_msg_handler;
 	openconnect_set_tcp_keepalive;
 } OPENCONNECT_5_9;
 
@@ -145,6 +146,7 @@ OPENCONNECT_PRIVATE { /* 6.00 */
 	openconnect_sha1; /* 6.00 */
 	openconnect_version_str; /* 6.00 */
 	openconnect_read_file; /* 8.06 */
+	openconnect_progress_msg;
  local:
 	*;
 };

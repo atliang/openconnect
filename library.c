@@ -40,6 +40,7 @@
 
 #include <string.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <ctype.h>
 
@@ -1556,6 +1557,30 @@ void openconnect_set_stats_handler(struct openconnect_info *vpninfo,
 				   openconnect_stats_vfn stats_handler)
 {
 	vpninfo->stats_handler = stats_handler;
+}
+
+void openconnect_set_progress_msg_handler(struct openconnect_info *vpninfo,
+					  openconnect_progress_msg_vfn progress_msg)
+{
+	vpninfo->progress_msg = progress_msg;
+}
+
+void openconnect_progress_msg(struct openconnect_info *vpninfo, int level,
+			      const char *fmt, ...)
+{
+	va_list args;
+	char *msg;
+	int ret;
+
+	va_start(args, fmt);
+	ret = vasprintf(&msg, fmt, args);
+	va_end(args);
+
+	if (ret < 0)
+		return;
+
+	vpninfo->progress_msg(vpninfo->cbdata, level, msg);
+	free(msg);
 }
 
 /* Set up a traditional OS-based tunnel device, optionally specified in 'ifname'. */
