@@ -934,16 +934,17 @@ static inline void free_pkt(struct openconnect_info *vpninfo, struct pkt *pkt)
 		free(pkt);
 }
 
-void __attribute__ ((format(printf, 3, 4)))
-    openconnect_progress_msg(struct openconnect_info *vpninfo, int level,
-			     const char *fmt, ...);
+void __attribute__ ((format(printf, 4, 5)))
+    openconnect_progress_msg(openconnect_progress_msg_vfn progress_msg,
+			     void *cbdata, int level, const char *fmt, ...);
 
 /* The varargs can't be passed on to (_v)->progress() from a function,
    so the choice between the two callbacks has to be made here. */
 #define vpn_progress(_v, lvl, ...) do {				\
 	if ((_v)->verbose >= (lvl)) {				\
 		if ((_v)->progress_msg)			\
-			openconnect_progress_msg((_v), lvl, __VA_ARGS__);	\
+			openconnect_progress_msg((_v)->progress_msg,	\
+						 (_v)->cbdata, lvl, __VA_ARGS__);	\
 		else if ((_v)->progress)			\
 			(_v)->progress((_v)->cbdata, lvl, __VA_ARGS__);	\
 	}							\

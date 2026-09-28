@@ -1565,8 +1565,8 @@ void openconnect_set_progress_msg_handler(struct openconnect_info *vpninfo,
 	vpninfo->progress_msg = progress_msg;
 }
 
-void openconnect_progress_msg(struct openconnect_info *vpninfo, int level,
-			      const char *fmt, ...)
+void openconnect_progress_msg(openconnect_progress_msg_vfn progress_msg,
+			      void *cbdata, int level, const char *fmt, ...)
 {
 	va_list args;
 	char *msg;
@@ -1579,7 +1579,7 @@ void openconnect_progress_msg(struct openconnect_info *vpninfo, int level,
 	if (ret < 0)
 		return;
 
-	vpninfo->progress_msg(vpninfo->cbdata, level, msg);
+	progress_msg(cbdata, level, msg);
 	free(msg);
 }
 
