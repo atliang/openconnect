@@ -38,6 +38,7 @@ extern "C" {
 /*
  * API version 5.10:
  *  - Add openconnect_set_tcp_keepalive()
+ *  - Add openconnect_set_progress_msg_handler()
  *
  * API version 5.9 (v9.12; 2023-05-20):
  *  - Add openconnect_set_sni()
@@ -777,6 +778,17 @@ struct openconnect_info *openconnect_vpninfo_new(const char *useragent,
 						 openconnect_progress_vfn,
 						 void *privdata);
 void openconnect_vpninfo_free(struct openconnect_info *vpninfo);
+
+/* Logging output as above, but already formatted, for callers which
+   cannot implement a variadic function (e.g. other language bindings).
+   If set, it is called instead of the progress function passed to
+   openconnect_vpninfo_new(), which may then be NULL. The message is
+   exactly what the progress function would have produced, usually
+   ending in a newline, and is only valid for the duration of the call. */
+typedef void (*openconnect_progress_msg_vfn) (void *privdata, int level,
+					      const char *msg);
+void openconnect_set_progress_msg_handler(struct openconnect_info *vpninfo,
+					  openconnect_progress_msg_vfn progress_msg);
 
 typedef int (*openconnect_open_webview_vfn) (struct openconnect_info *,
 					     const char *uri,

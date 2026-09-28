@@ -387,6 +387,7 @@ int connect_https_socket(struct openconnect_info *vpninfo)
 	} else {
 		struct addrinfo hints, *result, *rp;
 		char *hostname;
+		char *hostname_dup = NULL;
 		char port[6];
 
 		memset(&hints, 0, sizeof(struct addrinfo));
@@ -453,7 +454,7 @@ int connect_https_socket(struct openconnect_info *vpninfo)
 		}
 
 		if (hostname[0] == '[' && hostname[strlen(hostname)-1] == ']') {
-			hostname = strndup(hostname + 1, strlen(hostname) - 2);
+			hostname = hostname_dup = strndup(hostname + 1, strlen(hostname) - 2);
 			if (!hostname) {
 				ssl_sock = -ENOMEM;
 				goto out;
@@ -478,8 +479,7 @@ int connect_https_socket(struct openconnect_info *vpninfo)
 #ifdef _WIN32
 			free(errstr);
 #endif
-			if (hints.ai_flags & AI_NUMERICHOST)
-				free(hostname);
+			free(hostname_dup);
 			ssl_sock = -EINVAL;
 			/* If we were just retrying for dynamic DNS, reconnect using
 			   the previously-known IP address */
@@ -490,8 +490,7 @@ int connect_https_socket(struct openconnect_info *vpninfo)
 			}
 			goto out;
 		}
-		if (hints.ai_flags & AI_NUMERICHOST)
-			free(hostname);
+		free(hostname_dup);
 
 		for (rp = result; rp ; rp = rp->ai_next) {
 			char host[80];
