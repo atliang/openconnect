@@ -1,0 +1,138 @@
+#!/bin/bash
+#
+# Copyright © 2026 Pierre-Yves Le Borgne
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# version 2.1, as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+
+# Check that --mptcp makes the TLS connection a Multipath TCP socket, and
+# that openconnect falls back to TCP when the kernel refuses MPTCP sockets.
+# The server needs no MPTCP support: the connection then runs as plain TCP
+# on the wire, but the client socket is still an MPTCP one. On a kernel
+# without MPTCP, only the fallback is tested.
+
+SERV="${OCSERV:-ocserv}"
+srcdir=${srcdir:-.}
+PORT=4570
+PIDFILE=ocserv-pid.$$.tmp
+CLIPID=oc-pid.$$.tmp
+OUTFILE=mptcp.$$.tmp
+PATH=${PATH}:/usr/sbin
+IP=$(which ip)
+SS=$(which ss)
+
+. `dirname $0`/common.sh
+
+if test -z "${IP}" || test -z "${SS}";then
+	echo "the ip or ss tool is missing"
+	exit 77
+fi
+
+if test "$(id -u)" != "0";then
+	echo "This test must be run as root"
+	exit 77
+fi
+
+echo "Testing --mptcp..."
+
+function finish {
+  set +e
+  echo " * Cleaning up..."
+  test -f "${CLIPID}" && kill $(cat ${CLIPID}) >/dev/null 2>&1
+  test -f "${CLIPID}" && rm -f ${CLIPID} >/dev/null 2>&1
+  test -n "${PID}" && kill ${PID} >/dev/null 2>&1
+  test -n "${PIDFILE}" && rm -f ${PIDFILE} >/dev/null 2>&1
+  test -n "${CONFIG}" && rm -f ${CONFIG} >/dev/null 2>&1
+  rm -f ${OUTFILE} 2>&1
+}
+trap finish EXIT
+
+ADDRESS=10.203.2.1
+CLI_ADDRESS=10.203.1.1
+VPNNET=192.168.4.0/24
+VPNNET6=fd91:6d87:9341:dc6a::/112
+USERNAME=test
+
+. `dirname $0`/ns.sh
+
+if ${CMDNS1} test -e /proc/sys/net/mptcp/enabled;then
+	if ! ${SS} -H -M >/dev/null 2>&1;then
+		echo "ss does not support MPTCP sockets (-M)"
+		exit 77
+	fi
+	HAVE_MPTCP=1
+else
+	echo " * The kernel does not support MPTCP: only testing the fallback to TCP"
+	HAVE_MPTCP=0
+fi
+
+update_config test-dtls-psk.config
+if test "$VERBOSE" = 1;then
+DEBUG="-d 3"
+fi
+
+${CMDNS2} ${SERV} -p ${PIDFILE} -f -c ${CONFIG} ${DEBUG} & PID=$!
+
+sleep 4
+
+connect() {
+	( echo "test" | ${CMDNS1} ${OPENCONNECT} "$@" --no-dtls ${ADDRESS}:${PORT} -u ${USERNAME} --servercert=pin-sha256:xp3scfzy3rO -s ${srcdir}/scripts/vpnc-script --pid-file=${CLIPID} --passwd-on-stdin -b ) >${OUTFILE} 2>&1
+	if test $? != 0;then
+		cat ${OUTFILE}
+		echo "FAIL: could not connect to server"
+		exit 1
+	fi
+}
+
+disconnect() {
+	kill $(cat ${CLIPID})
+	rm -f ${CLIPID}
+	sleep 2
+}
+
+# Lists the client's MPTCP connections to the server
+mptcp_connections() {
+	${CMDNS1} ${SS} -H -n -M state established "dport = :${PORT}" 2>/dev/null
+}
+
+if test "${HAVE_MPTCP}" = 1;then
+	echo " * Connecting with --mptcp"
+	connect --mptcp
+	if ! mptcp_connections | grep -q "${ADDRESS}:${PORT}";then
+		cat ${OUTFILE}
+		echo "FAIL: expected an MPTCP connection to ${ADDRESS}:${PORT}, ss -M lists none"
+		exit 1
+	fi
+	disconnect
+
+	echo " * Connecting without --mptcp"
+	connect
+	if mptcp_connections | grep -q "${ADDRESS}:${PORT}";then
+		echo "FAIL: expected a TCP connection to ${ADDRESS}:${PORT} without --mptcp, ss -M lists an MPTCP one"
+		exit 1
+	fi
+	disconnect
+
+	${CMDNS1} sysctl -q -w net.mptcp.enabled=0
+fi
+
+echo " * Connecting with --mptcp while the kernel refuses MPTCP sockets"
+connect --mptcp
+if ! grep -q "Multipath TCP is not available" ${OUTFILE};then
+	cat ${OUTFILE}
+	echo "FAIL: expected the 'Multipath TCP is not available' fallback message"
+	exit 1
+fi
+if mptcp_connections | grep -q "${ADDRESS}:${PORT}";then
+	echo "FAIL: expected a TCP connection to ${ADDRESS}:${PORT} after the fallback, ss -M lists an MPTCP one"
+	exit 1
+fi
+disconnect
+
+exit 0

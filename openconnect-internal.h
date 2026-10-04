@@ -530,6 +530,7 @@ struct openconnect_info {
 	int dump_http_traffic;
 	int tcp_keepalive_enabled;
 	int tcp_keepalive_idle;
+	int mptcp;
 
 	int token_mode;
 	int token_bypassed;

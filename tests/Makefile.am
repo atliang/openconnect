@@ -75,9 +75,9 @@ EXTRA_DIST = certs/ca.pem certs/ca-key.pem certs/user-cert.pem $(USER_KEYS) $(US
 dist_check_SCRIPTS = autocompletion symbols
 TESTS = autocompletion symbols
 
-dist_check_SCRIPTS += dtls-psk sigterm pulse-ping
+dist_check_SCRIPTS += dtls-psk sigterm pulse-ping mptcp
 if HAVE_NETNS
-TESTS += dtls-psk sigterm pulse-ping
+TESTS += dtls-psk sigterm pulse-ping mptcp
 endif
 
 dist_check_SCRIPTS += ppp-over-tls ppp-over-tls-sync

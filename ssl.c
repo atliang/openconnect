@@ -68,6 +68,11 @@
 #endif
 #endif
 
+/* glibc before 2.32 doesn't declare IPPROTO_MPTCP */
+#if defined(__linux__) && !defined(IPPROTO_MPTCP)
+#define IPPROTO_MPTCP 262
+#endif
+
 static inline int connect_pending(void)
 {
 #ifdef _WIN32
@@ -328,6 +333,29 @@ static int set_tcp_keepalive(struct openconnect_info *vpninfo, int ssl_sock)
 	return 0;
 }
 
+/* Returns a Multipath TCP socket if MPTCP was requested and the kernel
+ * provides it, else -1 so that the caller creates a TCP socket. The kernel
+ * refuses with EPROTONOSUPPORT when built without MPTCP, ENOPROTOOPT when
+ * the net.mptcp.enabled sysctl is 0, and EINVAL before Linux 5.6. */
+static int mptcp_socket(struct openconnect_info *vpninfo, int family)
+{
+#ifdef __linux__
+	int fd;
+
+	if (!vpninfo->mptcp)
+		return -1;
+
+	fd = socket(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_MPTCP);
+	if (fd < 0)
+		vpn_progress(vpninfo, PRG_INFO,
+			     _("Multipath TCP is not available (%s); using TCP\n"),
+			     strerror(errno));
+	return fd;
+#else
+	return -1;
+#endif
+}
+
 int connect_https_socket(struct openconnect_info *vpninfo)
 {
 	int ssl_sock = -1;
@@ -339,11 +367,12 @@ int connect_https_socket(struct openconnect_info *vpninfo)
 	   lookup for the server anyway. */
 	if (vpninfo->peer_addr && (!vpninfo->is_dyndns || vpninfo->proxy)) {
 	reconnect:
+		ssl_sock = mptcp_socket(vpninfo, vpninfo->peer_addr->sa_family);
 #ifdef SOCK_CLOEXEC
-		ssl_sock = socket(vpninfo->peer_addr->sa_family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_IP);
 		if (ssl_sock < 0)
+			ssl_sock = socket(vpninfo->peer_addr->sa_family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_IP);
 #endif
-		{
+		if (ssl_sock < 0) {
 			ssl_sock = socket(vpninfo->peer_addr->sa_family, SOCK_STREAM, IPPROTO_IP);
 			if (ssl_sock < 0) {
 #ifdef _WIN32
@@ -507,8 +536,10 @@ int connect_https_socket(struct openconnect_info *vpninfo)
 					     rp->ai_family == AF_INET6 ? "]" : "",
 					     port);
 
-			ssl_sock = socket(rp->ai_family, rp->ai_socktype,
-					  rp->ai_protocol);
+			ssl_sock = mptcp_socket(vpninfo, rp->ai_family);
+			if (ssl_sock < 0)
+				ssl_sock = socket(rp->ai_family, rp->ai_socktype,
+						  rp->ai_protocol);
 			if (ssl_sock < 0)
 				continue;
 			set_fd_cloexec(ssl_sock);
