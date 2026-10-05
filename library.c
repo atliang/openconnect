@@ -1552,6 +1552,12 @@ void openconnect_set_reconnected_handler(struct openconnect_info *vpninfo,
 	vpninfo->reconnected = reconnected;
 }
 
+void openconnect_set_reconnecting_handler(struct openconnect_info *vpninfo,
+					  openconnect_reconnecting_vfn reconnecting)
+{
+	vpninfo->reconnecting = reconnecting;
+}
+
 void openconnect_set_stats_handler(struct openconnect_info *vpninfo,
 				   openconnect_stats_vfn stats_handler)
 {
