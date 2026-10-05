@@ -38,6 +38,7 @@ extern "C" {
 /*
  * API version 5.10:
  *  - Add openconnect_set_tcp_keepalive()
+ *  - Add openconnect_set_reconnecting_handler()
  *
  * API version 5.9 (v9.12; 2023-05-20):
  *  - Add openconnect_set_sni()
@@ -843,6 +844,14 @@ void openconnect_set_setup_tun_handler(struct openconnect_info *vpninfo,
 typedef void (*openconnect_reconnected_vfn) (void *privdata);
 void openconnect_set_reconnected_handler(struct openconnect_info *vpninfo,
 				         openconnect_reconnected_vfn reconnected_fn);
+
+/* Callback for indicating that a TCP reconnection is about to be attempted.
+   It is called before each attempt, where vpnc-script is invoked with
+   reason=attempt-reconnect, so that an application which configures the
+   interface itself can do the same, e.g. restore the route to the server. */
+typedef void (*openconnect_reconnecting_vfn) (void *privdata);
+void openconnect_set_reconnecting_handler(struct openconnect_info *vpninfo,
+					  openconnect_reconnecting_vfn reconnecting_fn);
 
 #ifdef __cplusplus
 }

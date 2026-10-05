@@ -134,6 +134,7 @@ OPENCONNECT_5_9 {
 
 OPENCONNECT_5_10 {
  global:
+	openconnect_set_reconnecting_handler;
 	openconnect_set_tcp_keepalive;
 } OPENCONNECT_5_9;
 
