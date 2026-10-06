@@ -66,6 +66,12 @@ echo -n "Authenticating with username/password/tokeninfo-2FA and NON-DEFAULT pat
 
 echo ok
 
+echo -n "Authenticating with a rejected tokeninfo-2FA code... "
+( echo "test" | $CLIENT $SERVURL --form-entry=_challenge:code=bad --cookieonly 2>&1 >/dev/null ) | grep -q "Login rejected by server: Permission denied." ||
+    fail $PID "Did not report rejection of 2FA code by fake Fortinet server"
+
+echo ok
+
 echo "Configuring fake server to require 1 rounds of tokeninfo-based 2FA with optional \"FTM push\"."
 curl -sk $SERVURL/CONFIGURE -d want_2fa=1 -d type_2fa=ftmpush
 
