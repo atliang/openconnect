@@ -136,7 +136,9 @@ def logincheck():
             or (C.type_2fa == 'ftmpush' and request.form.get('username') and request.form.get('ftmpush') == '1' and not request.form.get('magic'))
             or (C.type_2fa == 'html' and request.form.get('username') and request.form.get('magic') and request.form.get('credential'))):
             # we've received (at least one round of) 2FA login
-            if want_2fa == 1:
+            if request.form.get('code') == 'bad':
+                return send_2fa_rejected()
+            elif want_2fa == 1:
                 return complete_2fa()
             else:
                 session.update(want_2fa=want_2fa - 1)
@@ -160,6 +162,14 @@ def complete_2fa():
     resp = make_response('ret=1,redir=/remote/fortisslvpn_xml')
     resp.set_cookie('SVPNCOOKIE', cookify(dict(session)))
     return resp
+
+
+# 2FA code rejected (e.g. wrong or reused): the real server discards the
+# challenge and returns an HTML error page with status 200.
+def send_2fa_rejected():
+    session.update(step='2FA-rejected')
+    return ('<html><body><!--sslvpnerrmsg=Permission denied.-->Permission denied.<br></body></html>',
+            {'content-type': 'text/html; charset=utf-8'})
 
 
 # Tokeninfo-based 2FA initial login: ensure that client has sent the right realm value, and

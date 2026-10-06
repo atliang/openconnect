@@ -101,7 +101,7 @@ int fortinet_obtain_cookie(struct openconnect_info *vpninfo)
 	struct oc_text_buf *req_buf = NULL;
 	struct oc_auth_form *form = NULL;
 	struct oc_form_opt *opt, *opt2;
-	char *resp_buf = NULL, *realm = NULL, *tokeninfo_fields = NULL, *ti;
+	char *resp_buf = NULL, *realm = NULL, *tokeninfo_fields = NULL, *ti, *errmsg;
 	char *js_top_location = NULL;
 
 	req_buf = buf_alloc();
@@ -327,6 +327,21 @@ again:
 		else if (ret == -EOPNOTSUPP) {
 			free(form->message);
 			form->message = strdup(_("Invalid credentials; try again."));
+		}
+		/* XX: We got 200 status with an HTML error page, e.g. when a 2FA code
+		 * is rejected (such as a reused code). The server has discarded the
+		 * challenge, so prompting for another code can never succeed:
+		 *   <!--sslvpnerrmsg=Permission denied.-->
+		 */
+		else if (ret > 0 && (errmsg = strstr(resp_buf, "<!--sslvpnerrmsg="))) {
+			const char *end;
+
+			errmsg += strlen("<!--sslvpnerrmsg=");
+			end = strstr(errmsg, "-->") ?: errmsg + strlen(errmsg);
+			vpn_progress(vpninfo, PRG_ERR, _("Login rejected by server: %.*s\n"),
+				     (int)(end - errmsg), errmsg);
+			ret = -EPERM;
+			goto out;
 		}
 	}
 
