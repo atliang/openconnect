@@ -258,6 +258,7 @@ struct pkt {
 #define PROTO_FORTINET		5
 #define PROTO_NULLPPP		6
 #define PROTO_ARRAY		7
+#define PROTO_UNIVPN		8
 
 /* All supported PPP packet framings/encapsulations */
 #define PPP_ENCAP_RFC1661	1	/* Plain/synchronous/pre-framed PPP (RFC1661) */
@@ -414,7 +415,9 @@ struct pkt_q {
 
 struct vpn_proto;
 
+struct univpn_state;
 struct openconnect_info {
+	struct univpn_state *univpn;
 	const struct vpn_proto *proto;
 
 #ifdef HAVE_ICONV
@@ -714,8 +717,8 @@ struct openconnect_info {
 	int idle_timeout; /* Returned by server */
 
 #ifdef _WIN32
-	long dtls_monitored, ssl_monitored, cmd_monitored, tun_monitored;
-	HANDLE dtls_event, ssl_event, cmd_event;
+	long dtls_monitored, ssl_monitored, aux_ssl_monitored, cmd_monitored, tun_monitored;
+	HANDLE dtls_event, ssl_event, aux_ssl_event, cmd_event;
 #else
 	int _select_nfds;
 	fd_set _select_rfds;
@@ -724,7 +727,7 @@ struct openconnect_info {
 #ifdef HAVE_EPOLL
 	int epoll_fd;
 	int epoll_update;
-	uint32_t tun_epoll, ssl_epoll, dtls_epoll, cmd_epoll;
+	uint32_t tun_epoll, ssl_epoll, aux_ssl_epoll, dtls_epoll, cmd_epoll;
 #ifdef HAVE_VHOST
 	uint32_t vhost_call_epoll;
 #endif
@@ -753,6 +756,7 @@ struct openconnect_info {
 	int tun_fd;
 #endif
 	int ssl_fd;
+	int aux_ssl_fd;
 	int dtls_fd;
 
 	int dtls_tos_current;
@@ -1384,6 +1388,14 @@ int ppp_udp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readabl
 int openconnect_ppp_new(struct openconnect_info *vpninfo, int encap, int want_ipv4, int want_ipv6);
 int ppp_reset(struct openconnect_info *vpninfo);
 int check_http_status(const char *buf, int len);
+
+
+/* univpn.c */
+int univpn_obtain_cookie(struct openconnect_info *);
+int univpn_connect(struct openconnect_info *);
+int univpn_mainloop(struct openconnect_info *, int *, int);
+int univpn_bye(struct openconnect_info *, const char *);
+void univpn_shutdown(struct openconnect_info *);
 
 /* array.c */
 int array_obtain_cookie(struct openconnect_info *vpninfo);

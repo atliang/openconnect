@@ -185,7 +185,7 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 		int did_work = 0;
 		int timeout;
 #ifdef _WIN32
-		HANDLE events[4];
+		HANDLE events[5];
 		int nr_events = 0;
 #else
 		struct timeval tv;
@@ -284,6 +284,7 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 			} else {
 				/* close all connections and wait for the user to call
 				   openconnect_mainloop() again */
+				univpn_shutdown(vpninfo);
 				openconnect_close_https(vpninfo, 0);
 				if (vpninfo->dtls_state > DTLS_DISABLED) {
 					vpninfo->proto->udp_close(vpninfo);
@@ -315,6 +316,10 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 			WSAEventSelect(vpninfo->ssl_fd, vpninfo->ssl_event, vpninfo->ssl_monitored);
 			events[nr_events++] = vpninfo->ssl_event;
 		}
+		if (vpninfo->aux_ssl_monitored) {
+			WSAEventSelect(vpninfo->aux_ssl_fd, vpninfo->aux_ssl_event, vpninfo->aux_ssl_monitored);
+			events[nr_events++] = vpninfo->aux_ssl_event;
+		}
 		if (vpninfo->cmd_monitored) {
 			WSAEventSelect(vpninfo->cmd_fd, vpninfo->cmd_event, vpninfo->cmd_monitored);
 			events[nr_events++] = vpninfo->cmd_event;
@@ -332,7 +337,7 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 #else
 #ifdef HAVE_EPOLL
 		if (vpninfo->epoll_fd >= 0) {
-			struct epoll_event evs[5];
+			struct epoll_event evs[6];
 
 			/* During busy periods, monitor_read_fd() and unmonitor_read_fd()
 			 * may get called multiple times as we go round and round the
@@ -345,6 +350,7 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 			if (vpninfo->epoll_update) {
 				update_epoll_fd(vpninfo, tun);
 				update_epoll_fd(vpninfo, ssl);
+				update_epoll_fd(vpninfo, aux_ssl);
 				update_epoll_fd(vpninfo, cmd);
 				update_epoll_fd(vpninfo, dtls);
 #ifdef HAVE_VHOST
@@ -357,7 +363,7 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 			vhost_r = 0;
 #endif
 
-			int nfds = epoll_wait(vpninfo->epoll_fd, evs, 5, timeout);
+			int nfds = epoll_wait(vpninfo->epoll_fd, evs, 6, timeout);
 			if (nfds < 0) {
 				if (errno != EINTR) {
 					ret = -errno;
@@ -370,7 +376,8 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 				if (evs[nfds].events & (EPOLLIN|EPOLLERR)) {
 					if (evs[nfds].data.fd == vpninfo->tun_fd)
 						tun_r = 1;
-					else if (evs[nfds].data.fd == vpninfo->ssl_fd)
+					else if (evs[nfds].data.fd == vpninfo->ssl_fd ||
+						 evs[nfds].data.fd == vpninfo->aux_ssl_fd)
 						tcp_r = 1;
 					else if (evs[nfds].data.fd == vpninfo->dtls_fd)
 						udp_r = 1;
@@ -406,6 +413,8 @@ int openconnect_mainloop(struct openconnect_info *vpninfo,
 			udp_r = FD_ISSET(vpninfo->dtls_fd, &rfds);
 		if (vpninfo->ssl_fd >= 0)
 			tcp_r = FD_ISSET(vpninfo->ssl_fd, &rfds);
+		if (vpninfo->aux_ssl_fd >= 0)
+			tcp_r |= FD_ISSET(vpninfo->aux_ssl_fd, &rfds);
 #endif
 	}
 

@@ -193,6 +193,7 @@ struct openconnect_info *openconnect_vpninfo_new(const char *useragent,
 	vpninfo->tun_fd = -1;
 #endif
 	vpninfo->ssl_fd = -1;
+	vpninfo->aux_ssl_fd = -1;
 	vpninfo->dtls_fd = -1;
 	vpninfo->need_poll_cmd_fd = -1;
 	vpninfo->cmd_fd = -1;
@@ -407,6 +408,15 @@ static const struct vpn_proto openconnect_protos[] = {
 		.tcp_mainloop = nullppp_mainloop,
 		.add_http_headers = http_common_headers,
 		.obtain_cookie = nullppp_obtain_cookie,
+	}, {
+		.name = "univpn",
+		.pretty_name = N_("Huawei UniVPN (experimental)"),
+		.description = N_("Experimental IPv4 over TLS support for Huawei UniVPN"),
+		.proto = PROTO_UNIVPN,
+		.vpn_close_session = univpn_bye,
+		.tcp_connect = univpn_connect,
+		.tcp_mainloop = univpn_mainloop,
+		.obtain_cookie = univpn_obtain_cookie,
 	}, {
 		.name = "array",
 		.pretty_name = N_("Array SSL VPN"),
@@ -770,6 +780,7 @@ static void free_certinfo(struct cert_info *certinfo)
 
 void openconnect_vpninfo_free(struct openconnect_info *vpninfo)
 {
+	univpn_shutdown(vpninfo);
 	openconnect_close_https(vpninfo, 1);
 	if (vpninfo->proto->udp_shutdown)
 		vpninfo->proto->udp_shutdown(vpninfo);
