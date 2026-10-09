@@ -486,3 +486,8 @@ TESTS_ENVIRONMENT += DISABLE_ASAN_BROKEN_TESTS=1
 else
 TESTS_ENVIRONMENT += DISABLE_ASAN_BROKEN_TESTS=0
 endif
+
+check_PROGRAMS = univpn-codec
+univpn_codec_SOURCES = univpn-codec.c ../univpn-codec.h
+TESTS += univpn-codec
+EXTRA_DIST += univpn-integration.py

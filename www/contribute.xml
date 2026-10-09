@@ -126,6 +126,12 @@ the <tt>New Protocol</tt> tag</a>.</p>
 perhaps even Google Summer of Code projects.</p>
 
 <ul>
+  <li><b>Huawei / UniVPN SSL VPN.</b><br/>
+  Initial <a href="huawei.html">protocol observations</a> cover password
+  authentication, IPv4 framing and control/data heartbeats on one gateway.
+  See <a href="https://gitlab.com/openconnect/openconnect/-/issues/603">issue #603</a>.
+  These notes are a starting point for an implementation, not a supported
+  OpenConnect protocol.</li>
   <li><b><a href="https://www.checkpoint.com/products/endpoint-remote-access-vpn-software-blade/">CheckPoint VPN</a></b><br/>
   This is an IPSec-based VPN with fallback to using the SSL transport. Some discussion of OpenConnect support in this <a href="https://gitlab.com/openconnect/openconnect/issues/13">GitLab ticket</a>,
   and working code contributed in <a href="https://gitlab.com/openconnect/openconnect/-/merge_requests/207">MR !207</a>.</li>

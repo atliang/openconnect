@@ -7,7 +7,7 @@ FTR_PAGES = csd.html charset.html token.html pkcs11.html tpm.html features.html 
 START_PAGES = building.html connecting.html manual.html vpnc-script.html
 INDEX_PAGES = changelog.html download.html index.html packages.html platforms.html licence.html
 PROTO_PAGES = protocols.html anyconnect.html array.html fortinet.html f5.html globalprotect.html juniper.html pulse.html
-CONTR_PAGES = contribute.html mitm.html
+CONTR_PAGES = contribute.html mitm.html huawei.html
 TOPLEVEL_PAGES = mail.html
 
 ALL_PAGES = $(FTR_PAGES) $(START_PAGES) $(INDEX_PAGES) $(TOPLEVEL_PAGES) $(PROTO_PAGES) $(CONTR_PAGES)
