@@ -288,6 +288,7 @@ int univpn_connect(struct openconnect_info *v)
 	uv_consumed(&s->packets);
 	v->aux_ssl_fd = s->data->ssl_fd;
 	monitor_fd_new(v, aux_ssl); monitor_read_fd(v, aux_ssl); monitor_except_fd(v, aux_ssl);
+	monitor_fd_new(v, ssl);
 	monitor_read_fd(v, ssl); monitor_except_fd(v, ssl);
 	s->started = time(NULL); s->control_due = s->started + 10; s->data_due = s->started + 15;
 	vpn_progress(v, PRG_INFO, _("UniVPN IPv4/TLS data channel connected\n"));
