@@ -264,6 +264,8 @@ int univpn_connect(struct openconnect_info *v)
 	if (s->data) return -EINVAL;
 	s->data = openconnect_vpninfo_new(v->useragent, uv_validate_data, NULL, NULL, uv_progress, s);
 	if (!s->data) return -ENOMEM;
+	ret = openconnect_set_protocol(s->data, "univpn");
+	if (ret) return ret;
 #define COPY(field) do { if (v->field && !(s->data->field = strdup(v->field))) return -ENOMEM; } while (0)
 	COPY(hostname); COPY(unique_hostname); COPY(sni); COPY(cafile); COPY(ciphersuite_config);
 #undef COPY
