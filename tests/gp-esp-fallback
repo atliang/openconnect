@@ -1,0 +1,107 @@
+#!/bin/sh
+#
+# This file is part of openconnect.
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+# The fake GlobalProtect server hands out ESP keys but never answers ESP,
+# so the client always falls back to HTTPS shortly after configuring.
+# Stopping the server in that window is a network outage at the moment of
+# the fallback, which must be retried like any other lost connection
+# rather than ending the session.
+
+# This test uses LD_PRELOAD
+PRELOAD=1
+srcdir=${srcdir:-.}
+top_builddir=${top_builddir:-..}
+
+. `dirname $0`/common.sh
+
+FINGERPRINT="--servercert=pin-sha256:xp3scfzy3rO"
+CERT=$certdir/server-cert.pem
+KEY=$certdir/server-key.pem
+OCSERV=${srcdir}/fake-gp-server.py
+SERVURL="https://$ADDRESS:443"
+CLIENTLOG="$SOCKDIR/client.$$.tmp"
+
+start_server() {
+    launch_simple_sr_server $ADDRESS 443 $CERT $KEY >/dev/null 2>&1
+    PID=$!
+    wait_server $PID
+    LD_PRELOAD=libsocket_wrapper.so curl -sk $SERVURL/CONFIGURE -d esp=1
+}
+
+# Flask's reloader serves from a child of $PID.
+stop_server() {
+    pkill -P $PID
+    kill $PID
+    wait $PID 2>/dev/null
+    sleep 1
+}
+
+start_client() {
+    : > $CLIENTLOG
+    ( echo "test" | LD_PRELOAD=libsocket_wrapper.so $OPENCONNECT --protocol=gp $FINGERPRINT \
+        -u test --passwd-on-stdin --script-tun --script "exec sleep 1000" \
+        $SERVURL/gateway >$CLIENTLOG 2>&1 ) &
+    CLIENTPID=$!
+}
+
+wait_log() {
+    i=0
+    while ! grep -q "$1" $CLIENTLOG; do
+        i=$((i + 1))
+        test $i -le 30 || fail $PID "Never saw '$1' from client"
+        sleep 1
+    done
+}
+
+setups() {
+    grep -c 'ssl-vpn/hipreportcheck.esp' $CLIENTLOG
+}
+
+echo "Testing GlobalProtect ESP fallback to HTTPS ..."
+
+start_server
+
+echo -n "Gateway refusing the HTTPS tunnel ends the session without reconnecting... "
+start_client
+wait $CLIENTPID
+test $? = 2 || # what OpenConnect returns when server rejects cookie upon tunnel connection, as the fake server does
+    fail $PID "Client did not exit with the cookie rejection"
+test $(setups) = 1 ||
+    fail $PID "Client set the tunnel up again after the gateway refused it"
+echo ok
+
+echo -n "Gateway unreachable at the fallback is retried, not logged off... "
+start_client
+wait_log hipreportcheck.esp
+stop_server
+wait_log "using HTTPS instead"
+sleep 2
+kill -0 $CLIENTPID 2>/dev/null ||
+    fail $PID "Client exited while the gateway was unreachable"
+! grep -q 'logout.esp' $CLIENTLOG ||
+    fail $PID "Client logged the session off while the gateway was unreachable"
+start_server
+wait $CLIENTPID
+test $? = 2 || # the fake server rejects the cookie on the next fallback
+    fail $PID "Client did not exit with the cookie rejection"
+test $(setups) = 2 ||
+    fail $PID "Client did not set the tunnel up again once the gateway was back"
+echo ok
+
+cleanup
+
+exit 0
