@@ -820,6 +820,7 @@ struct openconnect_info {
 	openconnect_protect_socket_vfn protect_socket;
 	openconnect_getaddrinfo_vfn getaddrinfo_override;
 	openconnect_setup_tun_vfn setup_tun;
+	openconnect_provide_tun_vfn provide_tun;
 	openconnect_reconnected_vfn reconnected;
 
 	int (*ssl_read)(struct openconnect_info *vpninfo, char *buf, size_t len);
