@@ -108,6 +108,24 @@ static int setup_tun_device(struct openconnect_info *vpninfo)
 {
 	int ret;
 
+	/* Called instead of the setup_tun handler. The application configures
+	 * the interface or fails; never fall back to a tun device which nobody
+	 * would configure. */
+	if (vpninfo->provide_tun) {
+		ret = vpninfo->provide_tun(vpninfo->cbdata);
+		if (!ret && !tun_is_up(vpninfo)) {
+			vpn_progress(vpninfo, PRG_ERR,
+				     _("Handler returned success without providing a tun device\n"));
+			ret = -EINVAL;
+		}
+		if (ret) {
+			vpn_progress(vpninfo, PRG_ERR, _("Set up tun device failed\n"));
+			if (!vpninfo->quit_reason)
+				vpninfo->quit_reason = "Set up tun device failed";
+		}
+		return ret;
+	}
+
 	if (vpninfo->setup_tun) {
 		vpninfo->setup_tun(vpninfo->cbdata);
 		if (tun_is_up(vpninfo))

@@ -38,6 +38,7 @@ extern "C" {
 /*
  * API version 5.10:
  *  - Add openconnect_set_tcp_keepalive()
+ *  - Add openconnect_set_provide_tun_handler()
  *
  * API version 5.9 (v9.12; 2023-05-20):
  *  - Add openconnect_set_sni()
@@ -838,6 +839,18 @@ void openconnect_override_getaddrinfo(struct openconnect_info *vpninfo, openconn
 typedef void (*openconnect_setup_tun_vfn) (void *privdata);
 void openconnect_set_setup_tun_handler(struct openconnect_info *vpninfo,
 				       openconnect_setup_tun_vfn setup_tun);
+
+/* Callback for configuring the interface after tunnel is fully up, like
+   the setup_tun handler, for applications which need to be able to report
+   failure. If set, it is called instead of the setup_tun handler. It must
+   call openconnect_setup_tun_fd(), openconnect_setup_tun_device() or
+   openconnect_setup_tun_script() and return 0, or return -errno. On
+   failure, or if it returns 0 without one of those having succeeded
+   (-EINVAL), openconnect_mainloop() logs off the session and returns the
+   error; openconnect never creates a tun device itself. */
+typedef int (*openconnect_provide_tun_vfn) (void *privdata);
+void openconnect_set_provide_tun_handler(struct openconnect_info *vpninfo,
+					 openconnect_provide_tun_vfn provide_tun);
 
 /* Callback for indicating that a TCP reconnection succeeded. */
 typedef void (*openconnect_reconnected_vfn) (void *privdata);
