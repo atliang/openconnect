@@ -172,6 +172,17 @@ int urldecode_inplace(char *p)
 	return 0;
 }
 
+int check_http_status(const char *buf, int len)
+{
+	if (len >= 5 && !memcmp(buf, "HTTP/", 5)) {
+		const char *eol = memchr(buf, '\r', len) ?: memchr(buf, '\n', len);
+		const char *sp1 = memchr(buf, ' ', len);
+		const char *sp2 = sp1 ? memchr(sp1+1, ' ', len - (sp1-buf) + 1) : NULL;
+		return (sp1 && sp2 && (!eol || sp2<eol)) ? atoi(sp1+1) : 500;
+	}
+	return -EINVAL;
+}
+
 /* Read one HTTP header line into hdrbuf, potentially allowing for
  * continuation lines. Will never leave a character in 'nextchar' when
  * an empty line (signifying end of headers) is received. Will only
