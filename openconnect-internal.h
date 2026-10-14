@@ -1383,7 +1383,6 @@ int ppp_tcp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readabl
 int ppp_udp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable);
 int openconnect_ppp_new(struct openconnect_info *vpninfo, int encap, int want_ipv4, int want_ipv6);
 int ppp_reset(struct openconnect_info *vpninfo);
-int check_http_status(const char *buf, int len);
 
 /* array.c */
 int array_obtain_cookie(struct openconnect_info *vpninfo);
@@ -1633,6 +1632,7 @@ int http_add_cookie(struct openconnect_info *vpninfo, const char *option,
 const char *http_get_cookie(struct openconnect_info *vpninfo, const char *name);
 int internal_split_cookies(struct openconnect_info *vpninfo, int replace, const char *def_cookie);
 int urldecode_inplace(char *p);
+int check_http_status(const char *buf, int len);
 int process_http_response(struct openconnect_info *vpninfo, int connect,
 			  int (*header_cb)(struct openconnect_info *, char *, char *),
 			  struct oc_text_buf *body);
