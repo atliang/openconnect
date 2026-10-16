@@ -38,6 +38,7 @@ extern "C" {
 /*
  * API version 5.10:
  *  - Add openconnect_set_tcp_keepalive()
+ *  - Add openconnect_set_mptcp()
  *
  * API version 5.9 (v9.12; 2023-05-20):
  *  - Add openconnect_set_sni()
@@ -657,6 +658,9 @@ void openconnect_set_reqmtu(struct openconnect_info *, int reqmtu);
 void openconnect_set_dpd(struct openconnect_info *, int min_seconds);
 void openconnect_set_trojan_interval(struct openconnect_info *, int seconds);
 void openconnect_set_tcp_keepalive(struct openconnect_info *, int seconds);
+/* Use Multipath TCP for the TCP (TLS) connection when the kernel provides
+   it, else plain TCP. Returns -EOPNOTSUPP on platforms without MPTCP. */
+int openconnect_set_mptcp(struct openconnect_info *, int enable);
 int openconnect_get_idle_timeout(struct openconnect_info *);
 time_t openconnect_get_auth_expiration(struct openconnect_info *);
 

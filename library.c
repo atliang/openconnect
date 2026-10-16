@@ -1137,6 +1137,16 @@ void openconnect_set_tcp_keepalive(struct openconnect_info *vpninfo, int seconds
 		vpninfo->tcp_keepalive_idle = seconds;
 }
 
+int openconnect_set_mptcp(struct openconnect_info *vpninfo, int enable)
+{
+#ifndef __linux__
+	if (enable)
+		return -EOPNOTSUPP;
+#endif
+	vpninfo->mptcp = enable;
+	return 0;
+}
+
 int openconnect_get_idle_timeout(struct openconnect_info *vpninfo)
 {
 	return vpninfo->idle_timeout;
