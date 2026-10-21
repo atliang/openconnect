@@ -1380,19 +1380,26 @@ int gpst_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
 int gpst_sso_detect_done(struct openconnect_info *vpninfo,
 			 const struct oc_webview_result *result)
 {
-	int i;
+	/* Headers which may carry the SAML token. The canonical (lower-case)
+	 * name is stored, since it becomes the form field name. */
+	static const char *const token_hdrs[] = { "prelogin-cookie", "portal-userauthcookie" };
+	int i, j;
 
 	for (i=0; result->headers != NULL && result->headers[i] != NULL; i+=2) {
 		const char *hname = result->headers[i], *hval = result->headers[i+1];
 		if (!strcasecmp(hname, "saml-username")) {
 			free(vpninfo->sso_username);
 			vpninfo->sso_username = strdup(hval);
-		} else if (!strcasecmp(hname, "prelogin-cookie") ||
-			   !strcasecmp(hname, "portal-userauthcookie")) {
-			free(vpninfo->sso_token_cookie);
-			free(vpninfo->sso_cookie_value);
-			vpninfo->sso_token_cookie = strdup(hname);
-			vpninfo->sso_cookie_value = strdup(hval);
+			continue;
+		}
+		for (j = 0; j < ARRAY_SIZE(token_hdrs); j++) {
+			if (!strcasecmp(hname, token_hdrs[j])) {
+				free(vpninfo->sso_token_cookie);
+				free(vpninfo->sso_cookie_value);
+				vpninfo->sso_token_cookie = strdup(token_hdrs[j]);
+				vpninfo->sso_cookie_value = strdup(hval);
+				break;
+			}
 		}
 	}
 
