@@ -85,6 +85,7 @@ def check_form_against_session(*fields, use_query=False):
 #   domains: Comma-separated list of domains/authgroups to offer
 #   mock_dtls: Advertise DTLS capability (default False)
 #   no_html_login_form: Don't include a proper HTML login form (default False), with 'auth_form.username' and 'auth_form.password' fields
+#   checkbox_form: Include checked/unchecked checkboxes and validate their submission
 #   hidden_form_then_2fa: After the login form is completed:
 #      1. Send a hidden_form with 'hidden_form.choice' fields
 #      2. Then send a 2FA form, with 'auth_form.username' and 'auth_form.otp_password' fields
@@ -97,6 +98,7 @@ class TestConfiguration:
     mock_dtls: bool = False
     no_html_login_form: bool = False
     hidden_form_then_2fa: bool = False
+    checkbox_form: bool = False
     hidden_required_value: str = None
     def __post_init__(self):
         if self.domains:
@@ -115,6 +117,7 @@ def configure():
             mock_dtls=bool(request.form.get('mock_dtls')),
             no_html_login_form=bool(request.form.get('no_html_login_form')),
             hidden_form_then_2fa=bool(request.form.get('hidden_form_then_2fa')),
+            checkbox_form=bool(request.form.get('checkbox_form')),
             hidden_required_value=request.form.get('hidden_required_value'))
         return '', 201
     else:
@@ -153,18 +156,39 @@ def get_policy():
         sel = '<select name="domain">%s</select>' % ''.join(
             '<option value="%d">%s</option>' % nv for nv in enumerate(C.domains))
 
+    controls = ''
+    if C.checkbox_form:
+        # F5 can reject even an empty change_password field (#868).
+        controls = '''
+<input type="checkbox" name="change_password" value="">
+<input type="checkbox" name="unchecked_nonempty" value="1">
+<input type="checkbox" name="unchecked_hidden" value="1" style="display: none;">
+<input type="checkbox" name="checked_empty" value="" checked>
+<input type="checkbox" name="checked_nonempty" value="1" checked>
+<input type="checkbox" name="checked_false" value="1" checked="false">
+<input type="hidden" name="hidden_empty" value="">
+'''
+
     return '''
 <html><body><form id="auth_form" method="post">
 <table><tr><td id="credentials_table_header">Fake HTML login form</td></tr></table>
 <input type="text" name="username"/>
 <input type="password" name="password"/>
-%s</form></body></html>''' % sel
+%s</form></body></html>''' % (sel + controls)
 
 
 # Respond to 'POST /my.policy with a redirect response containing MRHSession and F5_ST
 # cookies (OpenConnect uses the combination of the two to detect successful authentication)
 @app.route('/my.policy', methods=['POST'])
 def post_policy():
+    if C.checkbox_form:
+        for name in ('change_password', 'unchecked_nonempty', 'unchecked_hidden'):
+            assert name not in request.form, f'Unchecked checkbox {name!r} was submitted'
+        # The presence of the checked attribute matters, even for checked="false".
+        for name, value in (('checked_empty', ''), ('checked_nonempty', '1'),
+                            ('checked_false', '1'), ('hidden_empty', '')):
+            assert request.form.getlist(name) == [value], f'Incorrect submission of {name!r}'
+
     if C.hidden_form_then_2fa:
         if session.get('step') == 'GET-login-form':
             # Initial login form

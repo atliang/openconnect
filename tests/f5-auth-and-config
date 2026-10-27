@@ -57,6 +57,15 @@ echo -n "Authenticating with username/password... "
 
 echo ok
 
+echo "Configuring fake server to validate HTML checkbox submission."
+curl -sk $SERVURL/CONFIGURE -d checkbox_form=1
+
+echo -n "Omitting unchecked checkboxes and preserving checked and hidden fields... "
+( echo "test" | $CLIENT $SERVURL --cookieonly --non-inter >/dev/null 2>&1) ||
+    fail $PID "Incorrect HTML checkbox submission to fake F5 server"
+
+echo ok
+
 echo "Configuring fake server for a choice of 3 domains/authgroups."
 curl -sk $SERVURL/CONFIGURE -d domains=xyz,abc,def
 
