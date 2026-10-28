@@ -73,6 +73,12 @@ int parse_input_node(struct openconnect_info *vpninfo, struct oc_auth_form *form
 		goto out;
 	}
 
+	/* Unchecked F5 checkboxes are not successful form controls. */
+	if (vpninfo->proto->proto == PROTO_F5 &&
+	    !strcasecmp(type, "checkbox") &&
+	    !xmlHasProp(node, (const xmlChar *)"checked"))
+		goto free_out;
+
 	if (nodisplay || !strcasecmp(type, "hidden")) {
 		opt->type = OC_FORM_OPT_HIDDEN;
 		xmlnode_get_prop(node, "name", &opt->name);
