@@ -982,6 +982,14 @@ static int xmlpost_append_form_opts(struct openconnect_info *vpninfo,
 			continue;
 		}
 
+		/* pin in the "userpin" new-PIN form: rename to "password" */
+		if (form->auth_id && !strcmp(form->auth_id, "userpin") &&
+		    !strcmp(opt->name, "pin")) {
+			if (!xmlNewTextChild(node, NULL, XCAST("password"), XCAST(opt->_value)))
+				goto bad;
+			continue;
+		}
+
 		/* verify_pin,verify_password: ignore */
 		if (!strcmp(opt->name, "verify_pin") ||
 		    !strcmp(opt->name, "verify_password")) {
