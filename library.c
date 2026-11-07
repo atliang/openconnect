@@ -1854,11 +1854,33 @@ retry:
 	if (ret == OC_FORM_RESULT_NEWGROUP &&
 	    form->authgroup_opt &&
 	    form->authgroup_opt->form._value) {
+		char *new_group = form->authgroup_opt->form._value;
+		int changed = !vpninfo->authgroup || strcmp(vpninfo->authgroup, new_group);
+
 		free(vpninfo->authgroup);
-		vpninfo->authgroup = strdup(form->authgroup_opt->form._value);
+		vpninfo->authgroup = strdup(new_group);
 
 		if (!vpninfo->xmlpost)
 			goto retry;
+
+		/* #812
+		 *
+		 * With XML POST the group choice normally travels in the
+		 * auth-reply that follows this form. But an SSO form opens
+		 * the browser before any reply is sent, and sso_login was
+		 * built for the *previous* group. Return to the caller so it
+		 * can re-issue the initial request with <group-select> and
+		 * re-parse sso-v2-login for the group just chosen. Skip the
+		 * round trip when the group already matches the one this
+		 * config was built for (e.g. --authgroup set it up front).
+		 *
+		 * As of auth.c as in 70d1e79d, this MUST stay below the
+		 * !xmlpost check above: cstp_obtain_cookie()'s newgroup:
+		 * path re-issues an XML init request, which is meaningless
+		 * for an HTML session.
+		 */
+		if (do_sso && changed)
+			return ret;
 	}
 
 	if (ret == OC_FORM_RESULT_CANCELLED || ret < 0)
