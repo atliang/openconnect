@@ -1,0 +1,74 @@
+<PAGE>
+	<INCLUDE file="inc/header.tmpl" />
+
+	<VAR match="VAR_SEL_PROTOCOLS" replace="selected" />
+	<VAR match="VAR_SEL_NETEXTENDER" replace="selected" />
+	<PARSE file="menu1.xml" />
+	<PARSE file="menu2-protocols.xml" />
+
+	<INCLUDE file="inc/content.tmpl" />
+
+<h1>SonicWall NetExtender</h1>
+
+<p>Experimental support for the <a
+href="https://www.sonicwall.com/products/remote-access/vpn-clients">SonicWall
+NetExtender</a> SSL VPN protocol was added to OpenConnect in 2026. It was
+implemented from the behaviour of the official NetExtender 10.2 client for Linux.</p>
+
+<p>NetExtender mode is requested by adding <tt>--protocol=netextender</tt>
+to the command line:
+<pre>
+  openconnect --protocol=netextender sslvpn.example.com
+</pre></p>
+
+<p>NetExtender logins take a <i>domain</i> as well as a username and password.
+It is <tt>LocalDomain</tt> by default, and a different one can be given with
+<tt>--authgroup</tt>:
+<pre>
+  openconnect --protocol=netextender --authgroup=CORP sslvpn.example.com
+</pre></p>
+
+<h2>Authentication</h2>
+
+<p>OpenConnect supports:</p>
+<ul>
+  <li>Username/password login</li>
+  <li>One-time password (OTP) second factor, e.g. codes sent by email. This
+      form has the ID <tt>_otp</tt> and the field name <tt>password</tt>, so the code can
+      be given with <tt>--form-entry=_otp:password=123456</tt>. Software tokens
+      (<tt>--token-mode</tt>) can generate the code too.</li>
+  <li>RADIUS challenge/response (form <tt>_challenge</tt>, field <tt>radiusReply</tt>)</li>
+  <li>RSA SecurID "next tokencode" (form <tt>_nexttoken</tt>, field <tt>nextcode</tt>)</li>
+</ul>
+
+<p>Not yet supported: SAML/browser login, setting a new RSA SecurID PIN,
+changing an expired password, device registration (PDA), and End Point
+Control (EPC) checks.</p>
+
+<p>The session cookie is called <tt>swap</tt>. Like other protocols, it can be
+obtained with <tt>--authenticate</tt> and passed to a later run with <tt>--cookie</tt>.</p>
+
+<h2>Tunnel</h2>
+
+<p>The tunnel carries PPP over TLS. Each PPP frame has a 4-byte big-endian
+length in front of it. The server picks either synchronous PPP (bare frames)
+or asynchronous PPP (an <a href="https://tools.ietf.org/html/rfc1662">RFC1662</a>
+HDLC-like byte stream), and OpenConnect supports both. Older firmware that
+needs the legacy <tt>pppFrameEncoded=1</tt> framing is not supported.</p>
+
+<p>The client IPv4 address comes from PPP IPCP. Split routes, DNS servers
+and search domains come from the server's configuration response. When the
+server sets <tt>TunnelAllMode</tt>, a default route is used instead of split routes.</p>
+
+<p>NetExtender does not use a UDP/DTLS transport.</p>
+
+<h2>Quirks and Issues</h2>
+
+<p>This support was developed against the official client's behaviour and
+has not yet been tested against many real SonicWall appliances. If you can
+test it, please report results (good or bad) to <a href="mail.html">the
+mailing list</a>. Logs from <tt>-vvv --dump-http-traffic</tt> help us a lot, but
+check them for passwords and cookies before you send them.</p>
+
+<INCLUDE file="inc/footer.tmpl" />
+</PAGE>

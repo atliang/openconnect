@@ -1,0 +1,107 @@
+#!/bin/sh
+#
+# Copyright © 2026 Brice McIver
+#
+# This file is part of openconnect.
+#
+# This is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License
+# as published by the Free Software Foundation; either version 2.1 of
+# the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+# This test uses LD_PRELOAD
+PRELOAD=1
+srcdir=${srcdir:-.}
+top_builddir=${top_builddir:-..}
+
+. `dirname $0`/common.sh
+
+FINGERPRINT="--servercert=pin-sha256:xp3scfzy3rO"
+CERT=$certdir/server-cert.pem
+KEY=$certdir/server-key.pem
+
+echo "Testing NetExtender auth against fake server ..."
+
+OCSERV=${srcdir}/fake-netextender-server.py
+launch_simple_sr_server $ADDRESS 443 $CERT $KEY > /dev/null 2>&1
+PID=$!
+wait_server $PID
+
+SERVURL="https://$ADDRESS:443"
+CLIENT="$OPENCONNECT --protocol=netextender $FINGERPRINT -u test --passwd-on-stdin -q"
+export LD_PRELOAD=libsocket_wrapper.so
+
+echo -n "Authenticating with username/password... "
+( echo "test" | $CLIENT $SERVURL --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake NetExtender server"
+
+echo ok
+
+echo -n "Authenticating with wrong password... "
+( echo "wrong" | $CLIENT $SERVURL --cookieonly >/dev/null 2>&1) &&
+    fail $PID "Unexpectedly received cookie with wrong password"
+
+echo ok
+
+echo -n "Authenticating with wrong domain... "
+( echo "test" | $CLIENT $SERVURL --authgroup=OtherDomain --cookieonly >/dev/null 2>&1) &&
+    fail $PID "Unexpectedly received cookie with wrong domain"
+
+echo ok
+
+echo "Configuring fake server to require OTP."
+curl -sk $SERVURL/CONFIGURE -d type_2fa=otp
+
+echo -n "Authenticating with username/password/OTP from --form-entry... "
+( echo "test" | $CLIENT $SERVURL --form-entry=_otp:password=123456 --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake NetExtender server"
+
+echo ok
+
+echo -n "Authenticating with username/password/OTP from TOTP token... "
+( echo "test" | $CLIENT $SERVURL --token-mode=totp --token-secret=FAKE --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake NetExtender server"
+
+echo ok
+
+echo -n "Authenticating with repeatedly rejected OTP (must give up)... "
+( echo "test" | $CLIENT $SERVURL --form-entry=_otp:password=000000 --cookieonly >/dev/null 2>&1) &&
+    fail $PID "Unexpectedly received cookie with wrong OTP"
+
+echo ok
+
+echo "Configuring fake server to require a RADIUS challenge."
+curl -sk $SERVURL/CONFIGURE -d type_2fa=challenge
+
+echo -n "Authenticating with username/password/challenge response... "
+( echo "test" | $CLIENT $SERVURL --form-entry=_challenge:radiusReply=4242 --cookieonly >/dev/null 2>&1) ||
+    fail $PID "Could not receive cookie from fake NetExtender server"
+
+echo ok
+
+for ppp in async sync; do
+    echo "Configuring fake server for PPP $ppp mode."
+    curl -sk $SERVURL/CONFIGURE -d ppp=$ppp
+
+    echo -n "Authenticating with username/password, then proceeding to tunnel stage... "
+    echo "test" | $CLIENT $SERVURL >/dev/null 2>&1
+    test $? = 2 || # what OpenConnect returns when server rejects cookie upon tunnel connection, as the fake server does
+        fail $PID "Something went wrong in fake NetExtender server (other than the expected rejection of cookie)"
+    STATUS=`curl -sk $SERVURL/STATUS`
+    test "$STATUS" = "connect=ok logout=ok" ||
+        fail $PID "Unexpected tunnel request or logout: $STATUS"
+
+    echo ok
+done
+
+cleanup
+
+exit 0

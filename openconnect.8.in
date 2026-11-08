@@ -94,8 +94,10 @@ F5 Big-IP VPN servers
 .RB ( \-\-protocol=f5 ),
 Fortinet Fortigate VPN servers
 .RB ( \-\-protocol=fortinet ),
-and Array Networks SSL VPN servers
-.RB ( \-\-protocol=array ).
+Array Networks SSL VPN servers
+.RB ( \-\-protocol=array ),
+and SonicWall NetExtender SSL VPN servers
+.RB ( \-\-protocol=netextender ).
 
 The connection happens in two phases. First there is a simple HTTPS
 connection over which the user authenticates somehow \- by using a
@@ -725,9 +727,11 @@ for experimental support for Palo Alto Networks GlobalProtect,
 .I f5
 for experimental support for F5 Big-IP,
 .I fortinet
-for experimental support for Fortinet Fortigate, and
+for experimental support for Fortinet Fortigate,
 .I array
-for experimental support for Array Networks SSL VPN.
+for experimental support for Array Networks SSL VPN, and
+.I netextender
+for experimental support for SonicWall NetExtender.
 
 See
 .I https://www.infradead.org/openconnect/protocols.html
