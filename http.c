@@ -888,7 +888,8 @@ int do_https_request(struct openconnect_info *vpninfo, const char *method, const
 	}
 	buf_append(buf, "\r\n");
 
-	if (request_body_type)
+	/* An empty body may have a NULL ->data, which memcpy() mustn't see */
+	if (request_body_type && request_body->pos)
 		buf_append_bytes(buf, request_body->data, request_body->pos);
 
 	if (vpninfo->port == 443)
