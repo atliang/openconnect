@@ -70,7 +70,7 @@ EXTRA_DIST = certs/ca.pem certs/ca-key.pem certs/user-cert.pem $(USER_KEYS) $(US
 	scripts/vpnc-script scripts/vpnc-script-detect-disconnect \
 	suppressions.lsan fake-fortinet-server.py fake-f5-server.py fake-juniper-server.py \
 	fake-juniper-sso-server.py fake-tncc.py fake-gp-server.py fake-cisco-server.py \
-	fake-pulse-server.py
+	fake-pulse-server.py fake-netextender-server.py
 
 dist_check_SCRIPTS = autocompletion symbols
 TESTS = autocompletion symbols
@@ -88,7 +88,7 @@ endif
 dist_check_SCRIPTS += auth-username-pass auth-certificate auth-nonascii cert-fingerprint \
 	id-test obsolete-server-crypto pfs auth-swtpm auth-hwtpm fortinet-auth-and-config \
 	f5-auth-and-config juniper-auth juniper-sso-auth gp-auth-and-config auth-pkcs11 \
-	auth-multicert oath-token
+	auth-multicert oath-token netextender-auth-and-config
 
 if HAVE_CWRAP
 TESTS += auth-username-pass auth-certificate auth-nonascii cert-fingerprint id-test \
@@ -111,7 +111,8 @@ endif
 if HAVE_PYTHON36_FLASK
 TESTS += juniper-sso-auth auth-multicert
 if HAVE_PYTHON37_DATACLASSES
-TESTS += juniper-auth gp-auth-and-config f5-auth-and-config fortinet-auth-and-config oath-token
+TESTS += juniper-auth gp-auth-and-config f5-auth-and-config fortinet-auth-and-config oath-token \
+	netextender-auth-and-config
 endif
 endif
 

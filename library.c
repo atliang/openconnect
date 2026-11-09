@@ -425,6 +425,18 @@ static const struct vpn_proto openconnect_protos[] = {
 		.udp_close = dtls_close,
 		.udp_shutdown = dtls_shutdown,
 #endif
+	}, {
+		.name = "netextender",
+		.pretty_name = N_("SonicWall NetExtender"),
+		.description = N_("Compatible with SonicWall NetExtender SSL VPN"),
+		.proto = PROTO_NETEXTENDER,
+		.flags = OC_PROTO_PROXY | OC_PROTO_AUTH_OTP | OC_PROTO_AUTH_STOKEN,
+		.vpn_close_session = netextender_bye,
+		.tcp_connect = netextender_connect,
+		.tcp_mainloop = ppp_tcp_mainloop,
+		.add_http_headers = netextender_common_headers,
+		.obtain_cookie = netextender_obtain_cookie,
+		.secure_cookie = "swap",
 	},
 };
 
@@ -657,9 +669,10 @@ int install_vpn_opts(struct openconnect_info *vpninfo, struct oc_vpn_option *opt
 	 * https://gitlab.com/openconnect/openconnect/-/merge_requests/293#note_702388182
 	 */
 	if (!ip_info->addr && !ip_info->addr6 && !ip_info->netmask6) {
-		if (vpninfo->proto->proto == PROTO_F5) {
-			/* F5 doesn't get its IP address until it actually establishes the
-			 * PPP connection. */
+		if (vpninfo->proto->proto == PROTO_F5 ||
+		    vpninfo->proto->proto == PROTO_NETEXTENDER) {
+			/* F5 and NetExtender don't get their IP address until they
+			 * actually establish the PPP connection. */
 		} else if (vpninfo->proto->proto == PROTO_NC && vpninfo->ip_info.addr) {
 			/* Juniper doesn't necessarily resend the Legacy IP address in the
 			 * event of a rekey/reconnection. */
@@ -818,6 +831,7 @@ void openconnect_vpninfo_free(struct openconnect_info *vpninfo)
 	free_optlist(vpninfo->csd_env);
 	free_optlist(vpninfo->script_env);
 	free_optlist(vpninfo->cookies);
+	free_optlist(vpninfo->nx_resp_hdrs);
 	free_optlist(vpninfo->cstp_options);
 	free_optlist(vpninfo->dtls_options);
 	free_split_routes(&vpninfo->ip_info);

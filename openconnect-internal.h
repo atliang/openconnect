@@ -258,6 +258,7 @@ struct pkt {
 #define PROTO_FORTINET		5
 #define PROTO_NULLPPP		6
 #define PROTO_ARRAY		7
+#define PROTO_NETEXTENDER	8
 
 /* All supported PPP packet framings/encapsulations */
 #define PPP_ENCAP_RFC1661	1	/* Plain/synchronous/pre-framed PPP (RFC1661) */
@@ -265,7 +266,9 @@ struct pkt {
 #define PPP_ENCAP_F5		3	/* F5 BigIP no HDLC */
 #define PPP_ENCAP_F5_HDLC	4	/* F5 BigIP HDLC */
 #define PPP_ENCAP_FORTINET	5	/* Fortinet no HDLC */
-#define PPP_ENCAP_MAX		PPP_ENCAP_FORTINET
+#define PPP_ENCAP_NX		6	/* SonicWall NetExtender: be32 length + sync PPP */
+#define PPP_ENCAP_NX_HDLC	7	/* SonicWall NetExtender: be32 length + HDLC (async) PPP */
+#define PPP_ENCAP_MAX		PPP_ENCAP_NX_HDLC
 
 #define COMPR_DEFLATE	(1<<0)
 #define COMPR_LZS	(1<<1)
@@ -315,6 +318,7 @@ struct oc_text_buf {
 #define HTTP_REDIRECT		1
 #define HTTP_REDIRECT_TO_GET	2
 #define HTTP_BODY_ON_ERROR	4
+#define HTTP_EMPTY_BODY_OK	8
 
 #define REDIR_TYPE_NONE		0
 #define REDIR_TYPE_NEWHOST	1
@@ -582,6 +586,7 @@ struct openconnect_info {
 
 	char *cookie; /* Pointer to within cookies list */
 	struct oc_vpn_option *cookies;
+	struct oc_vpn_option *nx_resp_hdrs; /* X-NE-* headers of last NetExtender response */
 	struct oc_vpn_option *cstp_options;
 	struct oc_vpn_option *dtls_options;
 
@@ -1391,6 +1396,12 @@ int array_connect(struct openconnect_info *vpninfo);
 int array_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable);
 int array_dtls_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable);
 int array_bye(struct openconnect_info *vpninfo, const char *reason);
+
+/* netextender.c */
+int netextender_obtain_cookie(struct openconnect_info *vpninfo);
+void netextender_common_headers(struct openconnect_info *vpninfo, struct oc_text_buf *buf);
+int netextender_connect(struct openconnect_info *vpninfo);
+int netextender_bye(struct openconnect_info *vpninfo, const char *reason);
 
 /* auth-globalprotect.c */
 int gpst_obtain_cookie(struct openconnect_info *vpninfo);

@@ -815,6 +815,7 @@ static int https_socket_closed(struct openconnect_info *vpninfo)
  *  flags (bitfield):   HTTP_REDIRECT: follow redirects;
  *                      HTTP_REDIRECT_TO_GET: follow redirects, but change POST to GET;
  *                      HTTP_BODY_ON_ERR: return server content in form_buf even on error
+ *                      HTTP_EMPTY_BODY_OK: treat a 200 response with no body as success (returns 0)
  *
  * Return value:
  *  < 0, on error
@@ -887,7 +888,8 @@ int do_https_request(struct openconnect_info *vpninfo, const char *method, const
 	}
 	buf_append(buf, "\r\n");
 
-	if (request_body_type)
+	/* An empty body may have a NULL ->data, which memcpy() mustn't see */
+	if (request_body_type && request_body->pos)
 		buf_append_bytes(buf, request_body->data, request_body->pos);
 
 	if (vpninfo->port == 443)
@@ -978,7 +980,11 @@ int do_https_request(struct openconnect_info *vpninfo, const char *method, const
 		}
 		goto out;
 	}
-	if (!buf->pos || result != 200) {
+	if (!buf->pos && result == 200 && (flags & HTTP_EMPTY_BODY_OK)) {
+		/* Caller only cares about the headers */
+		result = 0;
+		goto out;
+	} else if (!buf->pos || result != 200) {
 		if (!buf->pos)
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("Unexpected empty response body from server\n"));

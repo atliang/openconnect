@@ -173,6 +173,8 @@ static const char * const encap_names[PPP_ENCAP_MAX+1] = {
 	"F5",
 	"F5 HDLC",
 	"FORTINET",
+	"NETEXTENDER",
+	"NETEXTENDER HDLC",
 };
 
 static const char * const lcp_names[] = {
@@ -270,6 +272,15 @@ int ppp_reset(struct openconnect_info *vpninfo)
 		/* XX: Fortinet server rejects asyncmap and header compression. Don't blame me. */
 		ppp->out_lcp_opts &= ~(BIT_PFCOMP | BIT_ACCOMP);
 		ppp->encap_len = 6;
+		break;
+
+	case PPP_ENCAP_NX_HDLC:
+		ppp->hdlc = 1;
+		/* fall through */
+	case PPP_ENCAP_NX:
+		/* XX: The NetExtender client runs pppd with 'nopcomp noaccomp' */
+		ppp->out_lcp_opts &= ~(BIT_PFCOMP | BIT_ACCOMP);
+		ppp->encap_len = 4;
 		break;
 
 	case PPP_ENCAP_F5_HDLC:
@@ -1082,6 +1093,9 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 		unsigned char *eh, *ph, *pp, *next;
 		int receive_mtu = MAX(16384, vpninfo->ip_info.mtu);
 		int len, payload_len, next_len;
+		/* NetExtender async mode: bytes left in the current length-prefixed
+		 * chunk after the HDLC frame just decoded */
+		int nx_chunk_rem = 0;
 
 		if (!vpninfo->cstp_pkt) {
 			vpninfo->cstp_pkt = alloc_pkt(vpninfo, receive_mtu);
@@ -1196,6 +1210,37 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 				goto incomplete_pkt;
 			break;
 
+		case PPP_ENCAP_NX:
+		case PPP_ENCAP_NX_HDLC:
+			/* 4-byte big-endian length, followed by that many bytes */
+			payload_len = load_be32(eh);
+			next = eh + 4 + payload_len;
+
+			if (payload_len <= 0 || payload_len >= receive_mtu + rsv_hdr_size)
+				goto bad_encap_header;
+			if (len < 4 + payload_len)
+				goto incomplete_pkt;
+
+			if (ppp->encap == PPP_ENCAP_NX_HDLC) {
+				/* The chunk is a piece of the async (HDLC) byte stream from
+				 * the server's pppd, which may hold more than one frame. */
+				unsigned char *chunk_end = next;
+
+				payload_len = unhdlc_in_place(vpninfo, eh + 4, payload_len, &next);
+				if (payload_len < 0) {
+					/* Already logged. Skip to the next chunk */
+					next = chunk_end;
+					next_len = eh + len - next;
+					goto skip_pkt;
+				}
+				while (next < chunk_end && *next == 0x7e)
+					next++;
+				nx_chunk_rem = chunk_end - next;
+				if (vpninfo->dump_http_traffic)
+					dump_buf_hex(vpninfo, PRG_TRACE, '<', eh + 4, payload_len);
+			}
+			break;
+
 		case PPP_ENCAP_F5_HDLC:
 		case PPP_ENCAP_RFC1662_HDLC:
 			payload_len = unhdlc_in_place(vpninfo, eh + ppp->encap_len, len - ppp->encap_len, &next);
@@ -1291,7 +1336,7 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 					ppp->exp_ppp_hdr_size = pp - ph;
 					/* XX: If PPP header was SMALLER than expected, we could
 					 * be moving a huge packet past the allocated buffer. */
-					memmove(this->data, pp, payload_len + next_len);
+					memmove(this->data, pp, next + next_len - pp);
 					next -= (pp - this->data);
 				}
 
@@ -1324,18 +1369,33 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 				return ret;
 		}
 
+	skip_pkt:
 		if (next_len) {
 			/* Need to copy to a new struct pkt, not just move pointers, because data
 			 * packets will get stolen for incoming queue and free()'d. Allocate a
 			 * full sized packet so it can remain in vpninfo->cstp_pkt and be reused
 			 * for receiving the next packet, if it's something other than data and
 			 * doesn't get queued and freed. */
-			this = vpninfo->cstp_pkt = alloc_pkt(vpninfo, receive_mtu);
-			if (!this)
-				return -ENOMEM;
+			if (!vpninfo->cstp_pkt) {
+				this = vpninfo->cstp_pkt = alloc_pkt(vpninfo, receive_mtu);
+				if (!this)
+					return -ENOMEM;
+			} else {
+				/* Not stolen for the incoming queue; reuse it in place
+				 * (memmove below copes with the overlap). */
+				this = vpninfo->cstp_pkt;
+			}
 			eh = this->data - rsv_hdr_size;
-			memcpy(eh, next, next_len);
-			len = next_len;
+			len = 0;
+			if (nx_chunk_rem) {
+				/* Rest of a NetExtender chunk: give it its own length
+				 * header. We consumed >= 4 bytes, so this still fits. */
+				store_be32(eh, nx_chunk_rem);
+				len = 4;
+				nx_chunk_rem = 0;
+			}
+			memmove(eh + len, next, next_len);
+			len += next_len;
 			goto next_pkt;
 		}
 	}
@@ -1398,6 +1458,23 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 			 * the protocol to handle any magic required to reopen it. */
 			dtls_close(vpninfo);
 		} else {
+			if (ppp->ppp_state == PPPS_TERMINATE &&
+			    (vpninfo->got_cancel_cmd || vpninfo->got_pause_cmd)) {
+				/* We are shutting down, and some servers (e.g.
+				 * SonicWall NetExtender) close the connection in
+				 * response to our TERMREQ instead of sending a
+				 * TERMACK. That's as good as a TERMACK; don't try to
+				 * reconnect, which would fail anyway with the cancel
+				 * still pending, and then the logout would too.
+				 * (After a pause, the state is still TERMINATE but
+				 * no command is pending, so we do reconnect then.) */
+				vpn_progress(vpninfo, PRG_DEBUG,
+					     _("Server closed the connection during PPP termination\n"));
+				ppp->lcp.state |= NCP_TERM_ACK_RECEIVED;
+				vpninfo->delay_close = NO_DELAY_CLOSE;
+				openconnect_close_https(vpninfo, 0);
+				return 1;
+			}
 			if (ppp->ppp_state == PPPS_ESTABLISH) {
 				vpn_progress(vpninfo, PRG_ERR, _("Failed to establish PPP\n"));
 				vpninfo->quit_reason = "Failed to establish PPP";
@@ -1483,6 +1560,10 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 			store_be16(eh + 2, 0x5050);
 			store_be16(eh + 4, this->len + this->ppp.hlen);
 			break;
+		case PPP_ENCAP_NX:
+		case PPP_ENCAP_NX_HDLC:
+			store_be32(eh, this->len + this->ppp.hlen);
+			break;
 		}
 		this->ppp.hlen += ppp->encap_len;
 
@@ -1562,7 +1643,14 @@ int ppp_start_tcp_mainloop(struct openconnect_info *vpninfo)
 {
 	int timeout = 0;
 
-	return ppp_mainloop(vpninfo, 0, &vpninfo->ssl_times, &timeout, 1);
+	/* Only move to PPPS_ESTABLISH and queue our initial LCP request here;
+	 * don't do any I/O. Callers ignore our return value, so if the server
+	 * has already answered the tunnel request with an HTTP error (and
+	 * perhaps closed the connection), a read or write failure now would
+	 * be lost, and we'd later exit with a generic I/O error instead of
+	 * "cookie rejected". The first pass of the real mainloop reads before
+	 * it writes (tcp_r starts at 1), and handles both cases properly. */
+	return handle_state_transition(vpninfo, 0, &vpninfo->ssl_times, &timeout);
 }
 
 int ppp_tcp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)

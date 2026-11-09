@@ -62,7 +62,9 @@ static int setup_vring(struct openconnect_info *vpninfo, int idx)
 
 	vring->desc = calloc(vpninfo->vhost_ring_size, sizeof(*vring->desc));
 	vring->avail = calloc(vpninfo->vhost_ring_size + 3, 2);
-	vring->used = calloc(1 + (vpninfo->vhost_ring_size * 2), 4);
+	/* flags + idx, ring_size * { id, len }, then the 16-bit avail_event
+	 * (see AVAIL_EVENT()) which the kernel writes with EVENT_IDX. */
+	vring->used = calloc(2 + (vpninfo->vhost_ring_size * 2), 4);
 
 	if (!vring->desc || !vring->avail || !vring->used)
 		return -ENOMEM;
