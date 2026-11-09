@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 #
-# Copyright © 2026 Brice McIver
-#
 # This file is part of openconnect.
 #
 # This is free software; you can redistribute it and/or
