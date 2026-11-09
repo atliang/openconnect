@@ -1626,13 +1626,14 @@ int ppp_start_tcp_mainloop(struct openconnect_info *vpninfo)
 {
 	int timeout = 0;
 
-	/* Only kick off negotiation here; don't read. Callers ignore our return
-	 * value, so if the server's HTTP error response to the tunnel request
-	 * arrived quickly enough to be read now, the resulting error would be
-	 * lost and the next read would fail with a generic I/O error instead
-	 * of "cookie rejected". The first pass of the real mainloop always
-	 * reads (tcp_r starts at 1), and handles that response properly. */
-	return ppp_mainloop(vpninfo, 0, &vpninfo->ssl_times, &timeout, 0);
+	/* Only move to PPPS_ESTABLISH and queue our initial LCP request here;
+	 * don't do any I/O. Callers ignore our return value, so if the server
+	 * has already answered the tunnel request with an HTTP error (and
+	 * perhaps closed the connection), a read or write failure now would
+	 * be lost, and we'd later exit with a generic I/O error instead of
+	 * "cookie rejected". The first pass of the real mainloop reads before
+	 * it writes (tcp_r starts at 1), and handles both cases properly. */
+	return handle_state_transition(vpninfo, 0, &vpninfo->ssl_times, &timeout);
 }
 
 int ppp_tcp_mainloop(struct openconnect_info *vpninfo, int *timeout, int readable)
