@@ -1458,6 +1458,23 @@ static int ppp_mainloop(struct openconnect_info *vpninfo, int dtls,
 			 * the protocol to handle any magic required to reopen it. */
 			dtls_close(vpninfo);
 		} else {
+			if (ppp->ppp_state == PPPS_TERMINATE &&
+			    (vpninfo->got_cancel_cmd || vpninfo->got_pause_cmd)) {
+				/* We are shutting down, and some servers (e.g.
+				 * SonicWall NetExtender) close the connection in
+				 * response to our TERMREQ instead of sending a
+				 * TERMACK. That's as good as a TERMACK; don't try to
+				 * reconnect, which would fail anyway with the cancel
+				 * still pending, and then the logout would too.
+				 * (After a pause, the state is still TERMINATE but
+				 * no command is pending, so we do reconnect then.) */
+				vpn_progress(vpninfo, PRG_DEBUG,
+					     _("Server closed the connection during PPP termination\n"));
+				ppp->lcp.state |= NCP_TERM_ACK_RECEIVED;
+				vpninfo->delay_close = NO_DELAY_CLOSE;
+				openconnect_close_https(vpninfo, 0);
+				return 1;
+			}
 			if (ppp->ppp_state == PPPS_ESTABLISH) {
 				vpn_progress(vpninfo, PRG_ERR, _("Failed to establish PPP\n"));
 				vpninfo->quit_reason = "Failed to establish PPP";
