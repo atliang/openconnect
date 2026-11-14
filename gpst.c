@@ -54,6 +54,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -438,9 +439,22 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 			new_ip_info.netmask = add_option_steal(&new_opts, "netmask", &s);
 		} else if (!xmlnode_get_val(xml_node, "mtu", &s))
 			new_ip_info.mtu = atoi(s);
-		else if (!xmlnode_get_val(xml_node, "lifetime", &s))
-			vpninfo->auth_expiration = time(NULL) + atol(s);
-		else if (!xmlnode_get_val(xml_node, "quarantine", &s)) {
+		else if (!xmlnode_get_val(xml_node, "lifetime", &s)) {
+			long sec = atol(s);
+			vpninfo->auth_expiration = time(NULL) + sec;
+			/* "lifetime" is the Login Lifetime: how long the gateway honours this
+			 * login. That is the one point at which the tunnel has to be set up
+			 * again, so rekey shortly after it rather than on the inactivity
+			 * "timeout": the gateway then either accepts the reconnection or tells
+			 * us the session is over, instead of leaving us on a dead tunnel.
+			 */
+			if (sec > 0 && sec < INT_MAX - 60) {
+				vpn_progress(vpninfo, PRG_INFO, _("Login lifetime (rekey interval) is %ld minutes.\n"), sec/60);
+				vpninfo->ssl_times.last_rekey = time(NULL);
+				vpninfo->ssl_times.rekey = sec + 60;
+				vpninfo->ssl_times.rekey_method = REKEY_TUNNEL;
+			}
+		} else if (!xmlnode_get_val(xml_node, "quarantine", &s)) {
 			if (strcmp(s, "no"))
 				vpn_progress(vpninfo, PRG_DEBUG,
 					     _("WARNING: Config XML contains <quarantine> tag with value of \"%s\".\n"
@@ -457,10 +471,10 @@ static int gpst_parse_config_xml(struct openconnect_info *vpninfo, xmlNode *xml_
 			s = NULL;
 		} else if (!xmlnode_get_val(xml_node, "timeout", &s)) {
 			int sec = atoi(s);
-			vpn_progress(vpninfo, PRG_INFO, _("Tunnel timeout (rekey interval) is %d minutes.\n"), sec/60);
-			vpninfo->ssl_times.last_rekey = time(NULL);
-			vpninfo->ssl_times.rekey = sec - 60;
-			vpninfo->ssl_times.rekey_method = REKEY_TUNNEL;
+			/* "timeout" is the gateway's Inactivity Logout, not a key lifetime, so it
+			 * must not drive rekeying (see "lifetime" above).
+			 */
+			vpn_progress(vpninfo, PRG_INFO, _("Inactivity logout is %d minutes.\n"), sec/60);
 		} else if (!xmlnode_get_val(xml_node, "gw-address", &s)) {
 			/* As remarked in oncp.c, "this is a tunnel; having a
 			 * gateway is meaningless." See esp_send_probes_gp for the
