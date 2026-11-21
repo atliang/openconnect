@@ -108,6 +108,48 @@ static int spawn_browser(struct openconnect_info *vpninfo)
  * returns a redirect to that final URL, which is a pretty 'success'
  * page. And decodes the base64 blob to obtain the SSO token, qv.
  */
+/* Return a non-blocking socket listening on the loopback address sa, or -1. */
+static int listen_loopback(struct openconnect_info *vpninfo, int family,
+			   const struct sockaddr *sa, socklen_t salen)
+{
+	int listen_fd;
+#ifdef SOCK_CLOEXEC
+	listen_fd = socket(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+	if (listen_fd < 0)
+#endif
+	listen_fd = socket(family, SOCK_STREAM, IPPROTO_TCP);
+	if (listen_fd < 0)
+		goto sockerr;
+
+	int optval = 1;
+	(void)setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&optval, sizeof(optval));
+
+	if (bind(listen_fd, sa, salen) < 0 || listen(listen_fd, 1) ||
+	    set_sock_nonblock(listen_fd))
+		goto sockerr;
+
+	return listen_fd;
+
+ sockerr:
+	{
+		char *errstr;
+#ifdef _WIN32
+		errstr = openconnect__win32_strerror(WSAGetLastError());
+#else
+		errstr = strerror(errno);
+#endif
+		vpn_progress(vpninfo, PRG_DEBUG,
+			     _("Failed to listen on local port 29786: %s\n"),
+			     errstr);
+#ifdef _WIN32
+		free(errstr);
+#endif
+	}
+	if (listen_fd >= 0)
+		closesocket(listen_fd);
+	return -1;
+}
+
 int handle_external_browser(struct openconnect_info *vpninfo)
 {
 	int ret = 0;
@@ -115,44 +157,25 @@ int handle_external_browser(struct openconnect_info *vpninfo)
 	sin6.sin6_family = AF_INET6;
 	sin6.sin6_port = htons(29786);
 	sin6.sin6_addr = in6addr_loopback;
+	struct sockaddr_in sin = { };
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(29786);
+	sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-	int listen_fd;
-#ifdef SOCK_CLOEXEC
-	listen_fd = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
-	if (listen_fd < 0)
-#endif
-	listen_fd = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
-	if (listen_fd < 0) {
-		char *errstr;
-	sockerr:
-#ifdef _WIN32
-		errstr = openconnect__win32_strerror(WSAGetLastError());
-#else
-		errstr = strerror(errno);
-#endif
-
+	/* The browser's "localhost" may reach either loopback (#865), so
+	 * listen on both, and carry on with whichever one is available. */
+	int listen_fds[2], nfds = 0, fd;
+	fd = listen_loopback(vpninfo, AF_INET6, (void *)&sin6, sizeof(sin6));
+	if (fd >= 0)
+		listen_fds[nfds++] = fd;
+	fd = listen_loopback(vpninfo, AF_INET, (void *)&sin, sizeof(sin));
+	if (fd >= 0)
+		listen_fds[nfds++] = fd;
+	if (!nfds) {
 		vpn_progress(vpninfo, PRG_ERR,
-			     _("Failed to listen on local port 29786: %s\n"),
-			     errstr);
-#ifdef _WIN32
-		free(errstr);
-#endif
-		if (listen_fd >= 0)
-			closesocket(listen_fd);
+			     _("Failed to listen on local port 29786\n"));
 		return -EIO;
 	}
-
-	int optval = 1;
-	(void)setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&optval, sizeof(optval));
-
-	if (bind(listen_fd, (void *)&sin6, sizeof(sin6)) < 0)
-		goto sockerr;
-
-	if (listen(listen_fd, 1))
-		goto sockerr;
-
-	if (set_sock_nonblock(listen_fd))
-		goto sockerr;
 
 	/* Now that we are listening on the socket, we can spawn the browser */
 	if (vpninfo->open_ext_browser) {
@@ -175,7 +198,7 @@ int handle_external_browser(struct openconnect_info *vpninfo)
 	/* There may be other stray connections. Repeat until we have one
 	 * that looks like the actual auth attempt from the browser. */
 	while (1) {
-		int accept_fd = cancellable_accept(vpninfo, listen_fd);
+		int accept_fd = cancellable_accept(vpninfo, listen_fds, nfds);
 		if (accept_fd < 0) {
 			ret = accept_fd;
 			goto out;
@@ -377,7 +400,8 @@ int handle_external_browser(struct openconnect_info *vpninfo)
  out_b64:
 	buf_free(b64_buf);
  out:
-	closesocket(listen_fd);
+	while (nfds)
+		closesocket(listen_fds[--nfds]);
 	return ret;
 }
 #endif /* HAVE_HPKE_SUPPORT */

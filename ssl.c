@@ -169,24 +169,32 @@ static inline int accept_pending(void)
 #endif
 }
 
-int cancellable_accept(struct openconnect_info *vpninfo, int sockfd)
+/* Accept a connection on any of the nfds non-blocking listening sockets. */
+int cancellable_accept(struct openconnect_info *vpninfo, const int *fds, int nfds)
 {
 	fd_set wr_set, rd_set, ex_set;
-	int accept_fd, maxfd = sockfd;
+	int accept_fd, maxfd, i, except = 0;
 	char *errstr;
 
 	do {
-		accept_fd = accept(sockfd, NULL, NULL);
-		if (accept_fd >= 0)
-			return accept_fd;
+		for (i = 0; i < nfds; i++) {
+			accept_fd = accept(fds[i], NULL, NULL);
+			if (accept_fd >= 0)
+				return accept_fd;
 
-		if (!accept_pending())
-			break;
+			if (!accept_pending())
+				goto err;
+		}
 
 		FD_ZERO(&wr_set);
 		FD_ZERO(&rd_set);
 		FD_ZERO(&ex_set);
-		FD_SET(sockfd, &rd_set);
+		maxfd = 0;
+		for (i = 0; i < nfds; i++) {
+			FD_SET(fds[i], &rd_set);
+			if (fds[i] > maxfd)
+				maxfd = fds[i];
+		}
 
 		cmd_fd_set(vpninfo, &rd_set, &maxfd);
 		while (select(maxfd + 1, &rd_set, &wr_set, &ex_set, NULL) < 0) {
@@ -200,8 +208,11 @@ int cancellable_accept(struct openconnect_info *vpninfo, int sockfd)
 			vpn_progress(vpninfo, PRG_ERR, _("Socket accept cancelled\n"));
 			return -EINTR;
 		}
-	} while (!FD_ISSET(sockfd, &ex_set) && !vpninfo->got_pause_cmd);
+		for (i = 0; i < nfds; i++)
+			except |= FD_ISSET(fds[i], &ex_set);
+	} while (!except && !vpninfo->got_pause_cmd);
 
+ err:
 #ifdef _WIN32
 	errstr = openconnect__win32_strerror(WSAGetLastError());
 #else
