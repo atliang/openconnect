@@ -33,10 +33,13 @@
 
 #if defined(OPENCONNECT_OPENSSL)
 #include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/x509v3.h>
 #endif
 
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/wait.h>
 
 #include <string.h>
 #include <errno.h>
@@ -787,6 +790,7 @@ void openconnect_vpninfo_free(struct openconnect_info *vpninfo)
 #endif /* HAVE_HPKE_SUPPORT */
 
 	free(vpninfo->sso_username);
+	free(vpninfo->sso_user_email);
 	free(vpninfo->sso_cookie_value);
 	free(vpninfo->sso_browser_mode);
 	free(vpninfo->sso_login);
@@ -1794,6 +1798,193 @@ void nuke_opt_values(struct oc_form_opt *opt)
 	}
 }
 
+/*
+ * Extract the user's e-mail/UPN from the client certificate's SAN.
+ * Returns a malloc'ed string, or NULL if none is found.
+ */
+static char *extract_sso_cert_email(struct openconnect_info *vpninfo)
+{
+	char *email = NULL;
+
+	if (vpninfo->certinfo[0].cert == NULL)
+		return NULL;
+#if	defined(OPENCONNECT_OPENSSL)
+	BIO *bio = BIO_new_file(vpninfo->certinfo[0].cert, "r");
+	X509 *cert = NULL;
+	GENERAL_NAMES *names = NULL;
+	GENERAL_NAME *entry;
+	int count, i;
+
+	if (!bio) {
+		vpn_progress(vpninfo, PRG_INFO, _("Failed to open certificate file\n"));
+		goto out;
+	}
+	cert = PEM_read_bio_X509(bio, NULL, 0, NULL);
+	if (!cert) {
+		ERR_clear_error();
+		goto out;
+	}
+	names = X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);
+	if (names) {
+		count = sk_GENERAL_NAME_num(names);
+
+		/* Loop through all entries in the SAN extension */
+		for (i = 0; i < count; i++) {
+			entry = sk_GENERAL_NAME_value(names, i);
+			if (entry->type == GEN_EMAIL) {
+				email = strndup((const char *)ASN1_STRING_get0_data(entry->d.ia5),
+						ASN1_STRING_length(entry->d.ia5));
+				break;
+			}
+			if (entry->type == GEN_OTHERNAME) {
+				switch (OBJ_obj2nid(entry->d.otherName->type_id)) {
+				case NID_id_on_SmtpUTF8Mailbox:
+				case NID_ms_upn:
+					if (entry->d.otherName->value->type == V_ASN1_UTF8STRING) {
+						email = strndup((char *)
+							entry->d.otherName->value->value.utf8string->data,
+							entry->d.otherName->value->value.utf8string->length);
+						goto out;
+					}
+					break;
+				}
+			}
+		}
+	}
+out:
+	if (names)
+		sk_GENERAL_NAME_pop_free(names, GENERAL_NAME_free);
+	if (cert)
+		X509_free(cert);
+	if (bio)
+		BIO_free(bio);
+#elif	defined(OPENCONNECT_GNUTLS)
+	int i, ret = 0;
+	gnutls_x509_crt_t cert;
+	gnutls_datum_t data;
+	char name[128];
+	size_t name_len;
+
+	if (gnutls_load_file(vpninfo->certinfo[0].cert, &data) < 0)
+		return NULL;
+	if (gnutls_x509_crt_init(&cert) < 0) {
+		gnutls_free(data.data);
+		return NULL;
+	}
+	if (gnutls_x509_crt_import(cert, &data, GNUTLS_X509_FMT_PEM) < 0) {
+		vpn_progress(vpninfo, PRG_INFO,
+			     _("Failed to parse certificate for SSO e-mail lookup\n"));
+		goto gnutls_out;
+	}
+	for (i = 0; ret >= 0; i++) {
+		name_len = sizeof(name) - 1;	/* leave name for '\0' */
+		ret = gnutls_x509_crt_get_subject_alt_name(cert, i, name, &name_len, NULL);
+		if (ret == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE)
+			break;
+		if (ret == GNUTLS_SAN_RFC822NAME) {
+			email = strdup(&name[2]);
+			break;
+		} else if (ret == GNUTLS_SAN_OTHERNAME || ret > 1000) {
+			name[name_len] = 0;
+			email = strdup(name);
+			break;
+		}
+	}
+gnutls_out:
+	gnutls_free(data.data);
+	gnutls_x509_crt_deinit(cert);
+#endif
+	return email;
+}
+
+static int run_sso_helper(struct openconnect_info *vpninfo, char **cookie)
+{
+	char buf[4096];
+	ssize_t len = 0, n;
+	int pipefd[2], status;
+	pid_t pid;
+
+	if (pipe(pipefd) < 0) {
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("Failed to create pipe for the external SSO helper\n"));
+		return -errno;
+	}
+	pid = fork();
+	if (pid < 0) {
+		int err = errno;
+		close(pipefd[0]);
+		close(pipefd[1]);
+		vpn_progress(vpninfo, PRG_ERR, _("Failed to fork SSO helper: %s\n"),
+			     strerror(err));
+		return -err;
+	}
+	if (pid == 0) {
+		close(pipefd[0]);
+		dup2(pipefd[1], STDOUT_FILENO);
+		close(pipefd[1]);
+		setenv("SSO_LOGIN", vpninfo->sso_login, 1);
+		setenv("SSO_TOKEN_COOKIE", vpninfo->sso_token_cookie, 1);
+		if (vpninfo->sso_user_email)
+			setenv("SSO_USER_EMAIL", vpninfo->sso_user_email, 1);
+		/* Always pass 3 args so argv[3] is the cookie name */
+		execl(vpninfo->external_browser, vpninfo->external_browser,
+			vpninfo->sso_login,
+			vpninfo->sso_user_email ? vpninfo->sso_user_email : "",
+			vpninfo->sso_token_cookie, (char *)NULL);
+		_exit(127);
+	}
+	close(pipefd[1]);
+
+	/* Drain the pipe before waiting, so the child can't block on a full pipe */
+	while ((n = read(pipefd[0], buf + len, sizeof(buf) - 1 - len)) != 0) {
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+		len += n;
+		if (len >= (ssize_t)sizeof(buf) - 1)
+			break;
+	}
+	close(pipefd[0]);
+	buf[len] = 0;
+
+	while (waitpid(pid, &status, 0) < 0) {
+		if (errno != EINTR) {
+			vpn_progress(vpninfo, PRG_ERR, _("waitpid() failed: %s\n"),
+				     strerror(errno));
+			memset(buf, 0, sizeof(buf));
+			return -errno;
+		}
+	}
+	if (len >= (ssize_t)sizeof(buf) - 1) {
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("Cookie from external helper '%s' is too long (>%zu bytes)\n"),
+			     vpninfo->external_browser, sizeof(buf) - 2);
+		memset(buf, 0, sizeof(buf));
+		return -E2BIG;
+	}
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("External helper '%s' failed (status 0x%x)\n"),
+			     vpninfo->external_browser, status);
+		memset(buf, 0, sizeof(buf));
+		return -EIO;
+	}
+	/* Strip trailing newline(s) */
+	while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+		buf[--len] = 0;
+	if (!len) {
+		vpn_progress(vpninfo, PRG_ERR,
+			     _("Empty cookie from external helper '%s'\n"),
+			     vpninfo->external_browser);
+		return -ECANCELED;
+	}
+	*cookie = strdup(buf);
+	memset(buf, 0, sizeof(buf));
+	return *cookie ? 0 : -ENOMEM;
+}
+
 int process_auth_form(struct openconnect_info *vpninfo, struct oc_auth_form *form)
 {
 	int ret, do_sso = 0;
@@ -1867,14 +2058,19 @@ retry:
 	if (do_sso) {
 		free(vpninfo->sso_cookie_value);
 		free(vpninfo->sso_username);
+		free(vpninfo->sso_user_email);
 		vpninfo->sso_cookie_value = NULL;
 		vpninfo->sso_username = NULL;
+		vpninfo->sso_user_email = NULL;
 
 		/* Handle the special Cisco external browser mode */
 		if (vpninfo->sso_browser_mode && !strcmp(vpninfo->sso_browser_mode, "external")) {
 			ret = handle_external_browser(vpninfo);
 		} else if (vpninfo->open_webview) {
 			ret = vpninfo->open_webview(vpninfo, vpninfo->sso_login, vpninfo->cbdata);
+		} else if (vpninfo->sso_login && vpninfo->sso_token_cookie && vpninfo->external_browser) {
+			vpninfo->sso_user_email = extract_sso_cert_email(vpninfo);
+			ret = run_sso_helper(vpninfo, &vpninfo->sso_cookie_value);
 		} else {
 			vpn_progress(vpninfo, PRG_ERR,
 				     _("No SSO handler\n")); /* XX: print more debugging info */
@@ -1895,6 +2091,8 @@ retry:
 		}
 		free(vpninfo->sso_username);
 		vpninfo->sso_username = NULL;
+		free(vpninfo->sso_user_email);
+		vpninfo->sso_user_email = NULL;
 		free(vpninfo->sso_cookie_value);
 		vpninfo->sso_cookie_value = NULL;
 		free(vpninfo->sso_browser_mode);

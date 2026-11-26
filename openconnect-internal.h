@@ -804,6 +804,7 @@ struct openconnect_info {
 	char *sso_login;
 	char *sso_login_final;
 	char *sso_username;
+	char *sso_user_email;
 	char *sso_token_cookie;
 	char *sso_error_cookie;
 	char *sso_cookie_value;
